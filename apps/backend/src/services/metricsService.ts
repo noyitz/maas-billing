@@ -114,7 +114,7 @@ export interface RealMetricsRequest {
 export class MetricsService {
   private limitadorUrl = 'http://localhost:8082';
   private authorinoUrl = 'http://localhost:8084'; // Controller metrics with deep metrics enabled
-  private istioUrl = 'http://localhost:15000'; // Envoy/Istio gateway metrics
+  private istioUrl = 'http://localhost:15001'; // Envoy/Istio gateway metrics
   private recentRequests: RealMetricsRequest[] = [];
   private lastRequestTime = 0;
   private kubernetesNamespace = 'kuadrant-system';
@@ -131,6 +131,13 @@ export class MetricsService {
   // Fetch and parse real Envoy access logs from kubectl
   async fetchEnvoyAccessLogs(): Promise<RealMetricsRequest[]> {
     try {
+      // Check if we have recent cached data (less than 10 seconds old)
+      const now = Date.now();
+      if (this.cachedRequests.length > 0 && (now - this.lastMetricsUpdate) < 10000) {
+        logger.info(`Using cached Envoy logs (${this.cachedRequests.length} requests, age: ${Math.round((now - this.lastMetricsUpdate) / 1000)}s)`);
+        return this.cachedRequests;
+      }
+
       const { exec } = require('child_process');
       const { promisify } = require('util');
       const execAsync = promisify(exec);
@@ -142,11 +149,11 @@ export class MetricsService {
       
       if (!podName) {
         logger.warn('No Istio gateway pod found');
-        return [];
+        return this.cachedRequests; // Return existing cache
       }
 
-      // Get ALL logs to capture historical HTTP requests (real access logs from earlier)
-      const logsResult = await execAsync(`kubectl logs -n llm ${podName} --tail=1000`);
+      // Get recent logs only (last 100 lines) to avoid reprocessing old data
+      const logsResult = await execAsync(`kubectl logs -n llm ${podName} --tail=100 --since=1h`);
       const logLines = logsResult.stdout.split('\n');
 
       // Parse access log entries using actual Envoy log format
@@ -252,7 +259,21 @@ export class MetricsService {
       // Sort by timestamp (newest first)
       requests.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
       
-      logger.info(`Parsed ${requests.length} real requests from Envoy access logs`);
+      // Update cache and timestamp
+      this.cachedRequests = requests;
+      this.lastMetricsUpdate = now;
+      
+      // Debug: Log decision distribution for troubleshooting
+      const decisions = requests.map(r => r.decision);
+      const decisionCounts = decisions.reduce((acc, decision) => {
+        acc[decision] = (acc[decision] || 0) + 1;
+        return acc;
+      }, {} as Record<string, number>);
+      
+      logger.info(`Parsed ${requests.length} real requests from Envoy access logs`, {
+        decisionCounts,
+        sampleDecisions: decisions.slice(0, 5)
+      });
       return requests;
 
     } catch (error) {
@@ -903,6 +924,12 @@ export class MetricsService {
         logger.info(`Using REAL Envoy access log data AS-IS: ${envoyLogRequests.length} requests from actual logs`);
         // Return the real log data immediately - no synthetic data needed
         return envoyLogRequests;
+      }
+      
+      // Check for cached simulator requests if no Envoy logs available
+      if (this.cachedRequests.length > 0) {
+        logger.info(`Using cached requests (includes simulator data): ${this.cachedRequests.length} requests`);
+        return this.cachedRequests.slice(); // Return a copy
       }
 
       // Fallback to Prometheus metrics
@@ -1604,5 +1631,159 @@ export class MetricsService {
       hasRealTraffic,
       lastUpdate: new Date().toISOString()
     };
+  }
+
+  // Simulator-specific methods to inject metrics from simulator requests
+  createSimulatorMetric(params: {
+    requestId: string;
+    model: string;
+    team: string;
+    authApiKey: string;
+    httpStatus: number;
+    responseTime: number;
+    queryText: string;
+    maxTokens: number;
+    tier: string;
+    userAgent: string;
+    responseData: any;
+    endpoint: string;
+  }): RealMetricsRequest {
+    const { requestId, model, team, authApiKey, httpStatus, responseTime, queryText, maxTokens, tier, userAgent, responseData, endpoint } = params;
+    
+    // Determine if request was successful
+    const isSuccess = httpStatus >= 200 && httpStatus < 300;
+    const isRateLimited = httpStatus === 429;
+    const isAuthFailed = httpStatus === 401 || httpStatus === 403;
+    
+    // Extract token count from response if available
+    const tokens = responseData?.usage?.total_tokens || 0;
+    
+    // Create policy decisions based on response
+    const policyDecisions: PolicyDecisionDetails[] = [];
+    
+    if (isRateLimited) {
+      policyDecisions.push({
+        policyId: 'simulator-rate-limit',
+        policyName: 'Simulator Rate Limit',
+        policyType: 'RateLimitPolicy',
+        decision: 'deny',
+        reason: 'Rate limit exceeded',
+        enforcementPoint: 'limitador',
+        processingTime: 5
+      });
+    }
+    
+    if (isAuthFailed) {
+      policyDecisions.push({
+        policyId: 'simulator-auth-policy',
+        policyName: 'Simulator Auth Policy', 
+        policyType: 'AuthPolicy',
+        decision: 'deny',
+        reason: 'Authentication failed',
+        enforcementPoint: 'authorino',
+        processingTime: 3
+      });
+    }
+    
+    if (isSuccess) {
+      // Add successful auth decision
+      policyDecisions.push({
+        policyId: 'simulator-auth-policy',
+        policyName: 'Simulator Auth Policy',
+        policyType: 'AuthPolicy', 
+        decision: 'allow',
+        reason: 'Valid API key',
+        enforcementPoint: 'authorino',
+        processingTime: 2
+      });
+    }
+    
+    const simulatorRequest: RealMetricsRequest = {
+      id: requestId,
+      timestamp: new Date().toISOString(),
+      team,
+      model,
+      endpoint,
+      httpMethod: 'POST',
+      userAgent,
+      clientIp: '127.0.0.1',
+      decision: isSuccess ? 'accept' : 'reject',
+      finalReason: isSuccess ? 'Request approved' : 
+                  isRateLimited ? 'Rate limit exceeded' :
+                  isAuthFailed ? 'Authentication failed' : 
+                  `HTTP ${httpStatus}`,
+      authentication: {
+        method: 'api-key',
+        principal: authApiKey?.split(' ')[1] || 'unknown',
+        isValid: !isAuthFailed,
+        validationErrors: isAuthFailed ? ['Invalid API key'] : undefined
+      },
+      policyDecisions,
+      rateLimitStatus: isRateLimited ? {
+        limitName: 'simulator-rate-limit',
+        current: 10,
+        limit: 5,
+        window: '1m',
+        remaining: 0,
+        resetTime: new Date(Date.now() + 60000).toISOString(),
+        tier
+      } : undefined,
+      modelInference: isSuccess ? {
+        requestId,
+        modelName: model,
+        inputTokens: Math.floor(maxTokens * 0.3), 
+        outputTokens: Math.floor(maxTokens * 0.7),
+        totalTokens: tokens || maxTokens,
+        responseTime: responseTime || 100,
+        prompt: queryText,
+        completion: responseData?.choices?.[0]?.message?.content || '',
+        maxTokens,
+        finishReason: responseData?.choices?.[0]?.finish_reason || 'stop'
+      } : undefined,
+      queryText,
+      totalResponseTime: responseTime || 100,
+      gatewayLatency: 10,
+      estimatedCost: (tokens || maxTokens) * 0.0001,
+      billingTier: tier,
+      source: 'kuadrant',
+      traceId: `simulator-${Date.now()}`,
+      policyType: isRateLimited ? 'RateLimitPolicy' : isAuthFailed ? 'AuthPolicy' : 'None',
+      reason: isSuccess ? 'Request approved' : 
+              isRateLimited ? 'Rate limit exceeded' :
+              isAuthFailed ? 'Authentication failed' : 
+              `HTTP ${httpStatus}`,
+      tokens: tokens || 0,
+      rawLogData: {
+        responseCode: httpStatus,
+        flags: isSuccess ? '-' : isRateLimited ? 'RL' : 'UF',
+        route: endpoint,
+        bytesReceived: JSON.stringify({ model, queryText, maxTokens }).length,
+        bytesSent: JSON.stringify(responseData).length,
+        host: 'simulator.maas.local',
+        upstreamHost: 'simulator-service'
+      }
+    };
+    
+    return simulatorRequest;
+  }
+
+  addSimulatorRequest(request: RealMetricsRequest): void {
+    // Add to cached requests (this will appear in live metrics)
+    this.cachedRequests.unshift(request);
+    
+    // Keep only last 1000 requests to prevent memory bloat
+    if (this.cachedRequests.length > 1000) {
+      this.cachedRequests = this.cachedRequests.slice(0, 1000);
+    }
+    
+    // Update last request time
+    this.lastRequestTime = Date.now();
+    
+    logger.info('Added simulator request to metrics cache', {
+      requestId: request.id,
+      totalCachedRequests: this.cachedRequests.length,
+      decision: request.decision,
+      httpStatus: request.rawLogData?.responseCode
+    });
   }
 }

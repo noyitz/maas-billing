@@ -107,44 +107,73 @@ router.get('/policy-stats', async (req, res) => {
   }
 });
 
-// Get dashboard statistics from real Prometheus metrics
+// Get dashboard statistics from real live requests
 router.get('/dashboard', async (req, res) => {
   try {
-    // Get real data from Prometheus sources
-    const [istioMetrics, authorinoMetrics, status] = await Promise.all([
-      metricsService.fetchIstioMetrics(),
+    logger.info('DASHBOARD ROUTE START - entered dashboard endpoint');
+    // Get real live requests and calculate stats from actual data
+    // Use Promise.allSettled to avoid failing if some metrics are unavailable
+    const [liveRequestsResult, authorinoMetricsResult, statusResult] = await Promise.allSettled([
+      metricsService.getRealLiveRequests(),
       metricsService.fetchAuthorinoMetrics(),
       metricsService.getMetricsStatus()
     ]);
 
-    // Calculate totals from real Prometheus data
-    let totalRequests = 0;
-    let acceptedRequests = 0;
-    let authFailedRequests = 0;
-    let rateLimitedRequests = 0;
-    let rejectedRequests = 0;
+    // Extract results, using defaults for failed promises
+    const liveRequests = liveRequestsResult.status === 'fulfilled' ? liveRequestsResult.value : [];
+    const authorinoMetrics = authorinoMetricsResult.status === 'fulfilled' ? authorinoMetricsResult.value : null;
+    const status = statusResult.status === 'fulfilled' ? statusResult.value : {};
 
-    if (istioMetrics) {
-      // Use real Istio metrics for accurate counts
-      acceptedRequests = istioMetrics.successRequests || 0;
-      authFailedRequests = istioMetrics.authFailedRequests || 0;
-      rateLimitedRequests = istioMetrics.rateLimitedRequests || 0;
-      rejectedRequests = authFailedRequests + rateLimitedRequests + (istioMetrics.notFoundRequests || 0);
-      totalRequests = acceptedRequests + rejectedRequests;
-    }
+    logger.info(`Dashboard route calculation started`, {
+      liveRequestsCount: liveRequests.length,
+      authorinoMetricsAvailable: !!authorinoMetrics,
+      statusAvailable: !!status
+    });
+
+    // Calculate totals from actual live requests
+    const totalRequests = liveRequests.length;
+    const acceptedRequests = liveRequests.filter(r => r.decision === 'accept').length;
+    const rejectedRequests = liveRequests.filter(r => r.decision === 'reject').length;
+    
+    // Debug: Log decision distribution for troubleshooting dashboard counts
+    const decisions = liveRequests.map(r => r.decision);
+    const decisionCounts = decisions.reduce((acc, decision) => {
+      acc[decision] = (acc[decision] || 0) + 1;
+      return acc;
+    }, {} as Record<string, number>);
+    
+    logger.info(`Dashboard calculation debug`, {
+      totalRequests,
+      acceptedRequests,
+      rejectedRequests,
+      decisionCounts,
+      sampleDecisions: decisions.slice(0, 10)
+    });
+    
+    // Count specific policy enforcement types
+    const authFailedRequests = liveRequests.filter(r => 
+      r.policyType === 'AuthPolicy' || 
+      r.policyDecisions?.some(p => p.policyType === 'AuthPolicy' && p.decision === 'deny')
+    ).length;
+    
+    const rateLimitedRequests = liveRequests.filter(r => 
+      r.policyType === 'RateLimitPolicy' || 
+      r.policyDecisions?.some(p => p.policyType === 'RateLimitPolicy' && p.decision === 'deny')
+    ).length;
 
     // Enhanced status with real metrics sources
     const enhancedStatus = {
       ...status,
-      istioConnected: istioMetrics !== null,
-      metricsSource: istioMetrics ? 'istio-prometheus' : 'fallback',
-      realData: totalRequests > 0
+      istioConnected: false, // Istio prometheus is not accessible
+      metricsSource: 'live-requests',
+      realData: totalRequests > 0,
+      dataSource: 'envoy-access-logs'
     };
     
     res.json({
       success: true,
       data: {
-        // Real metrics from Prometheus
+        // Real metrics from live requests
         totalRequests,
         acceptedRequests,
         rejectedRequests,
@@ -155,14 +184,12 @@ router.get('/dashboard', async (req, res) => {
         // Enhanced status  
         kuadrantStatus: {
           ...enhancedStatus,
-          notFoundRequests: istioMetrics?.notFoundRequests || 0,
-          debugIstioMetrics: istioMetrics ? {
-            successRequests: istioMetrics.successRequests,
-            authFailedRequests: istioMetrics.authFailedRequests,
-            rateLimitedRequests: istioMetrics.rateLimitedRequests,
-            notFoundRequests: istioMetrics.notFoundRequests,
-            totalRequests: istioMetrics.totalRequests
-          } : null
+          notFoundRequests: 0,
+          debugInfo: {
+            liveRequestsCount: liveRequests.length,
+            recentRequestsTime: liveRequests.length > 0 ? liveRequests[0].timestamp : null,
+            cacheAge: Math.round((Date.now() - (metricsService as any).lastMetricsUpdate) / 1000)
+          }
         },
         
         // Real Authorino controller metrics from Prometheus

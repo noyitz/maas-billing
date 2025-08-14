@@ -76,10 +76,12 @@ export const useDashboardStats = (autoRefresh: boolean = true) => {
 
   const fetchStats = useCallback(async () => {
     try {
+      setLoading(true);
       setError(null);
       const data = await apiService.getDashboardStats();
       setStats(data);
     } catch (err) {
+      console.error('Dashboard stats error:', err);
       setError(err instanceof Error ? err.message : 'Failed to fetch dashboard stats');
     } finally {
       setLoading(false);

@@ -109,7 +109,7 @@ const RequestRow: React.FC<{ request: Request }> = ({ request }) => {
         </TableCell>
         <TableCell>
           <Typography variant="body2">
-            {new Date(request.timestamp).toLocaleTimeString()}
+            {new Date(request.timestamp).toLocaleString()}
           </Typography>
         </TableCell>
         <TableCell>
@@ -598,6 +598,7 @@ const MetricsDashboard: React.FC = () => {
     return decisionMatch && policyMatch && sourceMatch && searchMatch;
   });
 
+  
   if (requestsLoading || statsLoading) {
     return (
       <Box display="flex" justifyContent="center" alignItems="center" minHeight="400px">
@@ -617,17 +618,18 @@ const MetricsDashboard: React.FC = () => {
   }
 
   // Use real Prometheus metrics from dashboard API for top-level stats
-  const {
-    totalRequests = 0,
-    acceptedRequests = 0, 
-    rejectedRequests = 0,
-    authFailedRequests = 0,
-    rateLimitedRequests = 0,
-    policyEnforcedRequests = 0,
-    kuadrantStatus = {},
-    authorinoStats = null,
-    source = 'unknown'
-  } = stats || {};
+  
+  // Direct access instead of destructuring to avoid potential issues
+  const totalRequests = stats?.totalRequests || 0;
+  const acceptedRequests = stats?.acceptedRequests || 0;
+  const rejectedRequests = stats?.rejectedRequests || 0;
+  const authFailedRequests = stats?.authFailedRequests || 0;
+  const rateLimitedRequests = stats?.rateLimitedRequests || 0;
+  const policyEnforcedRequests = stats?.policyEnforcedRequests || 0;
+  const kuadrantStatus = stats?.kuadrantStatus || {};
+  const authorinoStats = stats?.authorinoStats || null;
+  const source = stats?.source || 'unknown';
+  
 
   // Extract real Authorino controller metrics (only what's available from Prometheus)
   const authConfigsManaged = authorinoStats?.authConfigs || 0;

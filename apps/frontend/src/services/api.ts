@@ -1,4 +1,6 @@
-const API_BASE_URL = 'http://localhost:3002/api/v1';
+import config from '../config/environment';
+
+const API_BASE_URL = config.API_BASE_URL;
 
 class ApiService {
   private async fetch(endpoint: string, options: RequestInit = {}) {
