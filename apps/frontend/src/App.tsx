@@ -47,6 +47,20 @@ function AppContent() {
   };
 
   const renderContent = () => {
+    // Debug check for undefined components
+    if (!PolicyManager) {
+      console.error('PolicyManager is undefined');
+      return <div>Error: PolicyManager component not found</div>;
+    }
+    if (!MetricsDashboard) {
+      console.error('MetricsDashboard is undefined');
+      return <div>Error: MetricsDashboard component not found</div>;
+    }
+    if (!RequestSimulator) {
+      console.error('RequestSimulator is undefined');
+      return <div>Error: RequestSimulator component not found</div>;
+    }
+
     switch (selectedView) {
       case 'policies':
         return <PolicyManager />;
@@ -237,6 +251,12 @@ function AppContent() {
 }
 
 function App() {
+  // Debug check for ThemeProvider
+  if (!ThemeProvider) {
+    console.error('ThemeProvider is undefined');
+    return <div>Error: ThemeProvider not found</div>;
+  }
+
   return (
     <ThemeProvider>
       <AppContent />
