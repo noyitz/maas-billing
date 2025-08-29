@@ -29,6 +29,11 @@ export interface KuadrantPolicy {
     id: string;
     type: string;
     config: any;
+    description?: string;
+    rates?: any[];
+    counters?: any[];
+    conditions?: any[];
+    allowedGroups?: string[];
   }>;
 }
 
@@ -245,7 +250,7 @@ class KuadrantService {
       created: policy.metadata?.creationTimestamp || new Date().toISOString(),
       modified: policy.metadata?.resourceVersion || new Date().toISOString(),
       isActive: this.isPolicyActive(policy),
-      items: this.extractRateLimitPolicyItems(policy.spec)
+      items: this.extractRateLimitPolicyItems(policy.spec, policy.metadata?.name)
     };
   }
 
@@ -311,15 +316,35 @@ class KuadrantService {
     return items;
   }
 
-  private extractRateLimitPolicyItems(spec: any): Array<{id: string, type: string, config: any}> {
-    const items: Array<{id: string, type: string, config: any}> = [];
+  private extractRateLimitPolicyItems(spec: any, policyName?: string): Array<{id: string, type: string, config: any, description?: string, rates?: any[], counters?: any[], conditions?: any[]}> {
+    const items: Array<{id: string, type: string, config: any, description?: string, rates?: any[], counters?: any[], conditions?: any[]}> = [];
     
     if (spec?.limits) {
       Object.entries(spec.limits).forEach(([key, value]: [string, any]) => {
+        const rates = value.rates || [];
+        const counters = value.counters || [];
+        const conditions = value.when || [];
+        
+        // Build description - detect if this is a token-based policy
+        const isTokenPolicy = policyName && policyName.toLowerCase().includes('token');
+        let description = `Rate limit: ${key}`;
+        if (rates.length > 0) {
+          const rate = rates[0];
+          const unit = isTokenPolicy ? 'tokens' : 'requests';
+          description += ` - ${rate.limit} ${unit} per ${rate.window}`;
+        }
+        if (conditions.length > 0) {
+          description += ` (when: ${conditions[0].predicate})`;
+        }
+        
         items.push({
-          id: `limit-${key}`,
-          type: 'rate-limit',
-          config: value
+          id: key,
+          type: isTokenPolicy ? 'token-rate-limit' : 'rate-limit',
+          config: value,
+          description,
+          rates,
+          counters,
+          conditions
         });
       });
     }
@@ -327,15 +352,33 @@ class KuadrantService {
     return items;
   }
 
-  private extractTokenRateLimitPolicyItems(spec: any): Array<{id: string, type: string, config: any}> {
-    const items: Array<{id: string, type: string, config: any}> = [];
+  private extractTokenRateLimitPolicyItems(spec: any): Array<{id: string, type: string, config: any, description?: string, rates?: any[], counters?: any[], conditions?: any[]}> {
+    const items: Array<{id: string, type: string, config: any, description?: string, rates?: any[], counters?: any[], conditions?: any[]}> = [];
     
-    if (spec?.rateLimits) {
-      spec.rateLimits.forEach((limit: any, index: number) => {
+    if (spec?.limits) {
+      Object.entries(spec.limits).forEach(([key, value]: [string, any]) => {
+        const rates = value.rates || [];
+        const counters = value.counters || [];
+        const conditions = value.when || [];
+        
+        // Build description - use "tokens" for token policies
+        let description = `Rate limit: ${key}`;
+        if (rates.length > 0) {
+          const rate = rates[0];
+          description += ` - ${rate.limit} tokens per ${rate.window}`;
+        }
+        if (conditions.length > 0) {
+          description += ` (when: ${conditions[0].predicate})`;
+        }
+        
         items.push({
-          id: `token-limit-${index}`,
+          id: key,
           type: 'token-rate-limit',
-          config: limit
+          config: value,
+          description,
+          rates,
+          counters,
+          conditions
         });
       });
     }

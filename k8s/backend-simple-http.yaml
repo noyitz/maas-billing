@@ -157,7 +157,7 @@ spec:
                           rate_description = f"Rate limit: {limit_name}"
                           if rates:
                               rate_info = rates[0]  # Take first rate
-                              rate_description += f" - {rate_info.get('limit', 'unlimited')} requests per {rate_info.get('window', 'unknown')}"
+                              rate_description += f" - {rate_info.get('limit', 'unlimited')} tokens per {rate_info.get('window', 'unknown')}"
                           
                           if when_conditions:
                               conditions = [cond.get('predicate', '') for cond in when_conditions]
