@@ -1,9 +1,8 @@
 import express from 'express';
-import { MetricsService } from '../services/metricsService';
+import metricsService from '../services/metricsService';
 import { logger } from '../utils/logger';
 
 const router: express.Router = express.Router();
-const metricsService = new MetricsService();
 
 // Get live requests with policy enforcement data
 router.get('/live-requests', async (req, res) => {
@@ -111,75 +110,90 @@ router.get('/policy-stats', async (req, res) => {
 router.get('/dashboard', async (req, res) => {
   try {
     logger.info('DASHBOARD ROUTE START - entered dashboard endpoint');
-    // Get real live requests and calculate stats from actual data
-    // Use Promise.allSettled to avoid failing if some metrics are unavailable
-    const [liveRequestsResult, authorinoMetricsResult, statusResult] = await Promise.allSettled([
+    
+    // Try to fetch metrics directly from Prometheus first
+    const [prometheusResult, liveRequestsResult, statusResult] = await Promise.allSettled([
+      metricsService.fetchPrometheusMetrics(),
       metricsService.getRealLiveRequests(),
-      metricsService.fetchAuthorinoMetrics(),
       metricsService.getMetricsStatus()
     ]);
 
     // Extract results, using defaults for failed promises
+    const prometheusMetrics = prometheusResult.status === 'fulfilled' ? prometheusResult.value : null;
     const liveRequests = liveRequestsResult.status === 'fulfilled' ? liveRequestsResult.value : [];
-    const authorinoMetrics = authorinoMetricsResult.status === 'fulfilled' ? authorinoMetricsResult.value : null;
     const status = statusResult.status === 'fulfilled' ? statusResult.value : {};
 
     logger.info(`Dashboard route calculation started`, {
+      prometheusMetricsAvailable: !!prometheusMetrics,
       liveRequestsCount: liveRequests.length,
-      authorinoMetricsAvailable: !!authorinoMetrics,
       statusAvailable: !!status
     });
 
-    // Calculate totals from actual live requests
-    const totalRequests = liveRequests.length;
-    const acceptedRequests = liveRequests.filter(r => r.decision === 'accept').length;
-    const rejectedRequests = liveRequests.filter(r => r.decision === 'reject').length;
-    
-    // Debug: Log decision distribution for troubleshooting dashboard counts
-    const decisions = liveRequests.map(r => r.decision);
-    const decisionCounts = decisions.reduce((acc, decision) => {
-      acc[decision] = (acc[decision] || 0) + 1;
-      return acc;
-    }, {} as Record<string, number>);
-    
+    // Use Prometheus metrics if available, otherwise fall back to live requests
+    let totalRequests, acceptedRequests, rejectedRequests, authFailedRequests, rateLimitedRequests;
+    let dataSource = 'unknown';
+
+    if (prometheusMetrics && prometheusMetrics.totalRequests > 0) {
+      // Use Prometheus data
+      totalRequests = prometheusMetrics.totalRequests;
+      acceptedRequests = prometheusMetrics.successRequests;
+      authFailedRequests = prometheusMetrics.authFailedRequests;
+      rateLimitedRequests = prometheusMetrics.rateLimitedRequests;
+      rejectedRequests = totalRequests - acceptedRequests;
+      dataSource = 'prometheus-metrics';
+      
+      logger.info(`Using Prometheus metrics: ${totalRequests} total, ${acceptedRequests} success, ${authFailedRequests} auth failures, ${rateLimitedRequests} rate limited`);
+    } else {
+      // Fall back to live requests calculation
+      totalRequests = liveRequests.length;
+      acceptedRequests = liveRequests.filter(r => r.decision === 'accept').length;
+      rejectedRequests = liveRequests.filter(r => r.decision === 'reject').length;
+      
+      authFailedRequests = liveRequests.filter(r => 
+        r.policyType === 'AuthPolicy' || 
+        r.policyDecisions?.some(p => p.policyType === 'AuthPolicy' && p.decision === 'deny')
+      ).length;
+      
+      rateLimitedRequests = liveRequests.filter(r => 
+        r.policyType === 'RateLimitPolicy' || 
+        r.policyDecisions?.some(p => p.policyType === 'RateLimitPolicy' && p.decision === 'deny')
+      ).length;
+      
+      dataSource = 'live-requests-fallback';
+      
+      logger.info(`Using live requests fallback: ${totalRequests} total, ${acceptedRequests} accepted, ${rejectedRequests} rejected`);
+    }
+
+    // Debug: Log final calculation
     logger.info(`Dashboard calculation debug`, {
       totalRequests,
       acceptedRequests,
       rejectedRequests,
-      decisionCounts,
-      sampleDecisions: decisions.slice(0, 10)
+      authFailedRequests,
+      rateLimitedRequests,
+      dataSource
     });
-    
-    // Count specific policy enforcement types
-    const authFailedRequests = liveRequests.filter(r => 
-      r.policyType === 'AuthPolicy' || 
-      r.policyDecisions?.some(p => p.policyType === 'AuthPolicy' && p.decision === 'deny')
-    ).length;
-    
-    const rateLimitedRequests = liveRequests.filter(r => 
-      r.policyType === 'RateLimitPolicy' || 
-      r.policyDecisions?.some(p => p.policyType === 'RateLimitPolicy' && p.decision === 'deny')
-    ).length;
 
     // Enhanced status with real metrics sources
     const enhancedStatus = {
       ...status,
-      istioConnected: false, // Istio prometheus is not accessible
-      metricsSource: 'live-requests',
+      istioConnected: dataSource === 'prometheus-metrics',
+      metricsSource: dataSource,
       realData: totalRequests > 0,
-      dataSource: 'envoy-access-logs'
+      dataSource: dataSource
     };
     
     res.json({
       success: true,
       data: {
-        // Real metrics from live requests
+        // Metrics from Prometheus or live requests fallback
         totalRequests,
         acceptedRequests,
         rejectedRequests,
         authFailedRequests,
         rateLimitedRequests,
         policyEnforcedRequests: authFailedRequests + rateLimitedRequests,
+        source: dataSource,
         
         // Enhanced status  
         kuadrantStatus: {
@@ -193,14 +207,14 @@ router.get('/dashboard', async (req, res) => {
         },
         
         // Real Authorino controller metrics from Prometheus
-        authorinoStats: authorinoMetrics ? {
-          authConfigs: Array.from(authorinoMetrics.authByNamespace?.keys() || []).length,
-          totalEvaluations: authorinoMetrics.authRequests || 0,
-          successfulReconciles: authorinoMetrics.authSuccesses || 0,
-          failedReconciles: authorinoMetrics.authFailures || 0,
+        authorinoStats: prometheusMetrics ? {
+          authConfigs: Array.from(prometheusMetrics.authByNamespace?.keys() || []).length,
+          totalEvaluations: prometheusMetrics.authRequests || 0,
+          successfulReconciles: prometheusMetrics.authSuccesses || 0,
+          failedReconciles: prometheusMetrics.authFailures || 0,
           // Additional controller metrics
-          reconcileOperations: authorinoMetrics.totalReconciles || 0,
-          avgReconcileTime: authorinoMetrics.avgReconcileTime || 0
+          reconcileOperations: prometheusMetrics.totalReconciles || 0,
+          avgReconcileTime: prometheusMetrics.avgReconcileTime || 0
         } : {
           authConfigs: 0,
           totalEvaluations: 0,

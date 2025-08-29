@@ -1,10 +1,9 @@
 import express from 'express';
 import { request } from 'undici';
 import { logger } from '../utils/logger';
-import { MetricsService } from '../services/metricsService';
+import metricsService from '../services/metricsService';
 
 const router: express.Router = express.Router();
-const metricsService = new MetricsService();
 
 // Simulator proxy endpoint
 router.post('/chat/completions', async (req, res) => {
@@ -38,23 +37,25 @@ router.post('/chat/completions', async (req, res) => {
       'Host': hostHeader
     };
 
-    const kuadrantUrl = process.env.KUADRANT_GATEWAY_URL || 'http://localhost:8080';
-    const targetUrl = `${kuadrantUrl}/v1/chat/completions`;
+    // Connect to the working Kuadrant-protected services
+    const baseUrl = modelKey === 'qwen3' 
+      ? (process.env.QWEN3_URL || 'http://qwen3-llm.apps.summit-gpu.octo-emerging.redhataicoe.com')
+      : (process.env.SIMULATOR_URL || 'http://simulator-llm.apps.summit-gpu.octo-emerging.redhataicoe.com');
+    const targetUrl = `${baseUrl}/v1/chat/completions`;
 
-    logger.info('Proxying request to Kuadrant', {
+    logger.info('Proxying request to simulator', {
       targetUrl,
       hostHeader,
       model: actualModel,
       tier
     });
 
-    // Use undici to make request with proper Host header support
+    // Use undici to make request to simulator
     const requestOptions = {
       method: 'POST',
       headers: {
         'Authorization': authHeader,
-        'Content-Type': 'application/json',
-        'Host': hostHeader  // undici supports setting Host header
+        'Content-Type': 'application/json'
       },
       body: JSON.stringify(requestBody)
     };
@@ -83,28 +84,7 @@ router.post('/chat/completions', async (req, res) => {
       dataLength: responseText.length
     });
 
-    // Add simulator request to metrics for live dashboard
-    try {
-      const simulatorMetric = metricsService.createSimulatorMetric({
-        requestId: `simulator-${Date.now()}-${Math.random()}`,
-        model: actualModel,
-        team: tier || 'unknown',
-        authApiKey: authHeader,
-        httpStatus: response.statusCode,
-        responseTime: Date.now() - startTime,
-        queryText: messages?.[0]?.content || '',
-        maxTokens: max_tokens || 0,
-        tier: tier || 'free',
-        userAgent: req.get('User-Agent') || 'simulator',
-        responseData,
-        endpoint: '/v1/chat/completions'
-      });
-      
-      metricsService.addSimulatorRequest(simulatorMetric);
-      logger.info('Added simulator request to metrics', { requestId: simulatorMetric.id });
-    } catch (metricsError) {
-      logger.warn('Failed to add simulator request to metrics:', metricsError);
-    }
+    // Note: Real metrics will be captured by Kuadrant if the request reaches the gateway
 
     // Return response with same status code
     res.status(response.statusCode).json({
