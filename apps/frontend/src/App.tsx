@@ -33,7 +33,7 @@ import RequestSimulator from './components/RequestSimulator';
 import { ThemeProvider, useTheme } from './contexts/ThemeContext';
 
 // Cache bust: force new bundle generation
-const BUILD_VERSION = '1.0.1';
+const BUILD_VERSION = '1.0.2';
 
 const drawerWidth = 240;
 

@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState } from 'react';
 import {
   Box,
   Button,
@@ -814,4 +814,8 @@ const RequestSimulator: React.FC = () => {
   );
 };
 
+// Explicit named export for better compatibility
+export { RequestSimulator };
+
+// Default export
 export default RequestSimulator;
