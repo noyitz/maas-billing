@@ -26,10 +26,14 @@ import {
   DarkMode,
 } from '@mui/icons-material';
 
+// Explicit imports to avoid bundling issues
 import PolicyManager from './components/PolicyManager';
 import MetricsDashboard from './components/MetricsDashboard';
 import RequestSimulator from './components/RequestSimulator';
 import { ThemeProvider, useTheme } from './contexts/ThemeContext';
+
+// Cache bust: force new bundle generation
+const BUILD_VERSION = '1.0.1';
 
 const drawerWidth = 240;
 
@@ -47,18 +51,26 @@ function AppContent() {
   };
 
   const renderContent = () => {
-    // Debug check for undefined components
+    // Debug check for undefined components with more detailed logging
+    console.log('BUILD_VERSION:', BUILD_VERSION);
+    console.log('Component status:', {
+      PolicyManager: typeof PolicyManager,
+      MetricsDashboard: typeof MetricsDashboard,
+      RequestSimulator: typeof RequestSimulator,
+      ThemeProvider: typeof ThemeProvider
+    });
+
     if (!PolicyManager) {
       console.error('PolicyManager is undefined');
-      return <div>Error: PolicyManager component not found</div>;
+      return <div>Error: PolicyManager component not found (Build: {BUILD_VERSION})</div>;
     }
     if (!MetricsDashboard) {
       console.error('MetricsDashboard is undefined');
-      return <div>Error: MetricsDashboard component not found</div>;
+      return <div>Error: MetricsDashboard component not found (Build: {BUILD_VERSION})</div>;
     }
     if (!RequestSimulator) {
       console.error('RequestSimulator is undefined');
-      return <div>Error: RequestSimulator component not found</div>;
+      return <div>Error: RequestSimulator component not found (Build: {BUILD_VERSION})</div>;
     }
 
     switch (selectedView) {
