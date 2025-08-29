@@ -29,11 +29,22 @@ import {
 // Explicit imports to avoid bundling issues
 import PolicyManager from './components/PolicyManager';
 import MetricsDashboard from './components/MetricsDashboard';
-import RequestSimulator from './components/RequestSimulator';
+// import RequestSimulator from './components/RequestSimulator';
 import { ThemeProvider, useTheme } from './contexts/ThemeContext';
 
+// Simple RequestSimulator replacement to isolate the issue
+const RequestSimulator = () => {
+  return (
+    <div style={{padding: '20px'}}>
+      <h1>Request Simulator</h1>
+      <p>Component loading successfully! Build version: 1.0.3</p>
+      <p>This confirms the issue was with the complex RequestSimulator component.</p>
+    </div>
+  );
+};
+
 // Cache bust: force new bundle generation
-const BUILD_VERSION = '1.0.2';
+const BUILD_VERSION = '1.0.3';
 
 const drawerWidth = 240;
 
