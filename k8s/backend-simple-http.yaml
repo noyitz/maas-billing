@@ -473,6 +473,139 @@ spec:
                   
                   self.wfile.write(json.dumps(response).encode('utf-8'))
               
+              def do_POST(self):
+                  """Handle POST requests"""
+                  parsed_path = urlparse(self.path)
+                  path = parsed_path.path
+                  
+                  print(f"📤 POST {path}")
+                  
+                  if path == '/api/v1/simulator/chat/completions':
+                      try:
+                          # Read request body
+                          content_length = int(self.headers['Content-Length'])
+                          post_data = self.rfile.read(content_length)
+                          request_data = json.loads(post_data.decode('utf-8'))
+                          
+                          # Get authorization header
+                          auth_header = self.headers.get('Authorization', '')
+                          
+                          print(f"🎯 Simulator request: model={request_data.get('model')}, tier={request_data.get('tier')}")
+                          
+                          # Simulate different responses based on tier
+                          tier = request_data.get('tier', 'unknown')
+                          
+                          if not auth_header or 'invalid' in tier:
+                              # Simulate auth failure
+                              self.send_response(401)
+                              self.send_header('Content-type', 'application/json')
+                              self.send_header('Access-Control-Allow-Origin', '*')
+                              self.end_headers()
+                              response = {
+                                  "success": False,
+                                  "error": "Authentication failed - invalid API key",
+                                  "debug": {
+                                      "tier": tier,
+                                      "auth_header": bool(auth_header)
+                                  }
+                              }
+                          elif 'test-tokens' in tier:
+                              # Simulate rate limiting for test-tokens tier
+                              import random
+                              if random.random() < 0.3:  # 30% chance of rate limiting
+                                  self.send_response(429)
+                                  self.send_header('Content-type', 'application/json')
+                                  self.send_header('Access-Control-Allow-Origin', '*')
+                                  self.end_headers()
+                                  response = {
+                                      "success": False,
+                                      "error": "Rate limit exceeded for test-tokens tier",
+                                      "debug": {
+                                          "tier": tier,
+                                          "limit": "20 tokens per 1m"
+                                      }
+                                  }
+                              else:
+                                  # Success response
+                                  self.send_response(200)
+                                  self.send_header('Content-type', 'application/json')
+                                  self.send_header('Access-Control-Allow-Origin', '*')
+                                  self.end_headers()
+                                  response = {
+                                      "success": True,
+                                      "data": {
+                                          "id": f"req-{datetime.now().timestamp()}",
+                                          "choices": [{
+                                              "message": {
+                                                  "role": "assistant",
+                                                  "content": f"Hello from {request_data.get('model')} via Kuadrant! Tier: {tier}"
+                                              },
+                                              "finish_reason": "stop"
+                                          }],
+                                          "usage": {
+                                              "prompt_tokens": len(str(request_data.get('messages', []))),
+                                              "completion_tokens": 20,
+                                              "total_tokens": len(str(request_data.get('messages', []))) + 20
+                                          }
+                                      },
+                                      "debug": {
+                                          "tier": tier,
+                                          "model": request_data.get('model'),
+                                          "kuadrant_enforced": True
+                                      }
+                                  }
+                          else:
+                              # Success response for other tiers
+                              self.send_response(200)
+                              self.send_header('Content-type', 'application/json')
+                              self.send_header('Access-Control-Allow-Origin', '*')
+                              self.end_headers()
+                              response = {
+                                  "success": True,
+                                  "data": {
+                                      "id": f"req-{datetime.now().timestamp()}",
+                                      "choices": [{
+                                          "message": {
+                                              "role": "assistant", 
+                                              "content": f"Hello from {request_data.get('model')} via Kuadrant! Tier: {tier}"
+                                          },
+                                          "finish_reason": "stop"
+                                      }],
+                                      "usage": {
+                                          "prompt_tokens": len(str(request_data.get('messages', []))),
+                                          "completion_tokens": 20,
+                                          "total_tokens": len(str(request_data.get('messages', []))) + 20
+                                      }
+                                  },
+                                  "debug": {
+                                      "tier": tier,
+                                      "model": request_data.get('model'),
+                                      "kuadrant_enforced": True
+                                  }
+                              }
+                          
+                          self.wfile.write(json.dumps(response).encode('utf-8'))
+                          
+                      except Exception as e:
+                          print(f"❌ Simulator error: {str(e)}")
+                          self.send_response(500)
+                          self.send_header('Content-type', 'application/json')
+                          self.send_header('Access-Control-Allow-Origin', '*')
+                          self.end_headers()
+                          response = {
+                              "success": False,
+                              "error": f"Simulator error: {str(e)}"
+                          }
+                          self.wfile.write(json.dumps(response).encode('utf-8'))
+                  else:
+                      # Unknown POST endpoint
+                      self.send_response(404)
+                      self.send_header('Content-type', 'application/json')
+                      self.send_header('Access-Control-Allow-Origin', '*')
+                      self.end_headers()
+                      response = {"error": "Not found", "path": path}
+                      self.wfile.write(json.dumps(response).encode('utf-8'))
+              
               def log_message(self, format, *args):
                   """Custom logging"""
                   print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] {format % args}")
@@ -482,6 +615,7 @@ spec:
               print(f"🚀 Starting MaaS Backend HTTP server on port {PORT}...")
               print(f"📋 Policies endpoint: http://localhost:{PORT}/api/v1/policies")
               print(f"📊 Metrics endpoint: http://localhost:{PORT}/api/v1/metrics/dashboard")
+              print(f"🎯 Simulator endpoint: http://localhost:{PORT}/api/v1/simulator/chat/completions")
               print(f"🏥 Health endpoint: http://localhost:{PORT}/health")
               
               with socketserver.TCPServer(("0.0.0.0", PORT), CORSRequestHandler) as httpd:

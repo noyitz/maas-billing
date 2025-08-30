@@ -2,6 +2,14 @@ import config from '../config/environment';
 
 const API_BASE_URL = config.API_BASE_URL;
 
+interface SimulateRequestParams {
+  model: string;
+  messages: Array<{role: string, content: string}>;
+  max_tokens?: number;
+  tier: string;
+  apiKey: string;
+}
+
 class ApiService {
   private async fetch(endpoint: string, options: RequestInit = {}) {
     const url = `${API_BASE_URL}${endpoint}`;
@@ -67,6 +75,21 @@ class ApiService {
 
   async getPolicyStats() {
     return this.fetch('/metrics/policy-stats');
+  }
+
+  async simulateRequest(params: SimulateRequestParams) {
+    return this.fetch('/simulator/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${params.apiKey}`,
+      },
+      body: JSON.stringify({
+        model: params.model,
+        messages: params.messages,
+        max_tokens: params.max_tokens || 100,
+        tier: params.tier
+      }),
+    });
   }
 }
 

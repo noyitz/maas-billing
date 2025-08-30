@@ -330,33 +330,8 @@ spec:
           # Copy hooks
           cp /source/useApi.ts /app-files/src/hooks/ 2>/dev/null || echo "useApi.ts not found"
           
-          # Copy services
+          # Copy services - use the version from configmap
           cp /source/api.ts /app-files/src/services/ 2>/dev/null || echo "api.ts not found"
-          
-          # Create simple working API service
-          echo 'const API_BASE_URL = "http://maas-backend-route-llm.apps.summit-gpu.octo-emerging.redhataicoe.com/api/v1";' > /app-files/src/services/api.ts
-          echo 'class ApiService {' >> /app-files/src/services/api.ts
-          echo '  async getPolicies() {' >> /app-files/src/services/api.ts
-          echo '    const response = await fetch(API_BASE_URL + "/policies");' >> /app-files/src/services/api.ts
-          echo '    const data = await response.json();' >> /app-files/src/services/api.ts
-          echo '    return data.success ? data.data : data;' >> /app-files/src/services/api.ts
-          echo '  }' >> /app-files/src/services/api.ts
-          echo '  async getDashboardStats() {' >> /app-files/src/services/api.ts
-          echo '    const response = await fetch(API_BASE_URL + "/metrics/dashboard");' >> /app-files/src/services/api.ts
-          echo '    const data = await response.json();' >> /app-files/src/services/api.ts
-          echo '    return data.success ? data.data : data;' >> /app-files/src/services/api.ts
-          echo '  }' >> /app-files/src/services/api.ts
-          echo '  async deletePolicy(id: string) { return Promise.resolve({}); }' >> /app-files/src/services/api.ts
-          echo '  async createPolicy(policy: any) { return Promise.resolve(policy); }' >> /app-files/src/services/api.ts
-          echo '  async updatePolicy(id: string, policy: any) { return Promise.resolve(policy); }' >> /app-files/src/services/api.ts
-          echo '  async getLiveRequests() { return []; }' >> /app-files/src/services/api.ts
-          echo '  async getMetrics() { return {}; }' >> /app-files/src/services/api.ts
-          echo '  async getModels() { return []; }' >> /app-files/src/services/api.ts
-          echo '  async getRequestDetails() { return {}; }' >> /app-files/src/services/api.ts
-          echo '  async getPolicyStats() { return {}; }' >> /app-files/src/services/api.ts
-          echo '}' >> /app-files/src/services/api.ts
-          echo 'const apiService = new ApiService();' >> /app-files/src/services/api.ts
-          echo 'export default apiService;' >> /app-files/src/services/api.ts
           
           # Copy data
           cp /source/mockData.ts /app-files/src/data/ 2>/dev/null || echo "mockData.ts not found"

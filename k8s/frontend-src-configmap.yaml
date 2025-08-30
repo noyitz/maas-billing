@@ -453,6 +453,14 @@ data:
 
     const API_BASE_URL = config.API_BASE_URL;
 
+    interface SimulateRequestParams {
+      model: string;
+      messages: Array<{role: string, content: string}>;
+      max_tokens?: number;
+      tier: string;
+      apiKey: string;
+    }
+
     class ApiService {
       private async fetch(endpoint: string, options: RequestInit = {}) {
         const url = `${API_BASE_URL}${endpoint}`;
@@ -518,6 +526,21 @@ data:
 
       async getPolicyStats() {
         return this.fetch('/metrics/policy-stats');
+      }
+
+      async simulateRequest(params: SimulateRequestParams) {
+        return this.fetch('/simulator/chat/completions', {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${params.apiKey}`,
+          },
+          body: JSON.stringify({
+            model: params.model,
+            messages: params.messages,
+            max_tokens: params.max_tokens || 100,
+            tier: params.tier
+          }),
+        });
       }
     }
 
@@ -808,7 +831,7 @@ data:
 
     export default App;
   RequestSimulator.tsx: |
-    import React, { useState, useRef, useEffect } from 'react';
+    import React, { useState, useEffect } from 'react';
     import {
       Box,
       Button,
@@ -818,45 +841,29 @@ data:
       TextField,
       Typography,
       Alert,
-      Chip,
+      CircularProgress,
       Paper,
-      Accordion,
+      Stack,
+      Collapse,
+      IconButton,
+      Chip,
+      Divider,
       AccordionSummary,
       AccordionDetails,
-      Divider,
-      CircularProgress,
-      FormControl,
-      InputLabel,
-      Select,
-      MenuItem,
-      Dialog,
-      DialogTitle,
-      DialogContent,
-      DialogActions,
-      List,
-      ListItem,
-      ListItemText,
-      IconButton,
-      Tooltip,
-      Stack,
+      Accordion,
     } from '@mui/material';
     import {
       PlayArrow as PlayIcon,
       SmartToy as ModelIcon,
       Group as TierIcon,
-      ExpandMore as ExpandMoreIcon,
       CheckCircle as SuccessIcon,
-      Cancel as ErrorIcon,
-      ContentCopy as CopyIcon,
-      Visibility as ViewIcon,
-      DragIndicator as DragIcon,
-      Security as AuthIcon,
-      Speed as RateLimitIcon,
-      ArrowForward as ArrowIcon,
-      Computer as SimulatorIcon,
+      Error as ErrorIcon,
+      Warning as WarningIcon,
+      ExpandMore as ExpandMoreIcon,
+      AccessTime as TimeIcon,
+      Security as SecurityIcon,
     } from '@mui/icons-material';
 
-    import config from '../config/environment';
     import { useTheme } from '../contexts/ThemeContext';
     import apiService from '../services/api';
 
@@ -878,8 +885,11 @@ data:
     interface SimulationResult {
       id: string;
       timestamp: string;
-      model: Model;
-      tier: Tier;
+      status: 'success' | 'auth_failed' | 'rate_limited' | 'error';
+      statusCode?: number;
+      responseTime: number;
+      model: string;
+      tier: string;
       request: {
         method: string;
         url: string;
@@ -888,17 +898,11 @@ data:
       };
       response: {
         status: number;
-        statusText: string;
-        headers: Record<string, string>;
-        body: any;
-        responseTime: number;
+        headers?: Record<string, string>;
+        data: any;
+        error?: string;
       };
-      decision: 'success' | 'auth_failed' | 'rate_limited' | 'error';
-      policyEnforcement?: {
-        authPolicy?: string;
-        rateLimitPolicy?: string;
-        reason?: string;
-      };
+      reason: string;
     }
 
     const RequestSimulator: React.FC = () => {
@@ -910,10 +914,8 @@ data:
       const [numRequests, setNumRequests] = useState(10);
       const [isRunning, setIsRunning] = useState(false);
       const [results, setResults] = useState<SimulationResult[]>([]);
-      const [detailDialog, setDetailDialog] = useState<SimulationResult | null>(null);
       const [availableTiers, setAvailableTiers] = useState<Tier[]>([]);
       const [tiersLoading, setTiersLoading] = useState(true);
-      const dragCounter = useRef(0);
 
       // Available models from cluster
       const availableModels: Model[] = [
@@ -940,9 +942,8 @@ data:
             const policies = await apiService.getPolicies();
             console.log('Fetched policies:', policies);
             
-            // Extract unique tiers from policies
+            // Extract tiers from auth policy allowedGroups
             const tierSet = new Set<string>();
-            const tierMap = new Map<string, any>();
             
             policies.forEach((policy: any) => {
               // Look for auth policies with allowedGroups
@@ -951,25 +952,24 @@ data:
                   if (item.allowedGroups && Array.isArray(item.allowedGroups)) {
                     item.allowedGroups.forEach((group: string) => {
                       tierSet.add(group);
-                      if (!tierMap.has(group)) {
-                        tierMap.set(group, {
-                          id: group,
-                          name: group.split('-').map((word: string) => 
-                            word.charAt(0).toUpperCase() + word.slice(1)
-                          ).join(' '),
-                          description: `${group} tier from auth policy: ${policy.name}`,
-                          apiKey: `${group}_key`,
-                          limits: 'Policy-based limits'
-                        });
-                      }
                     });
                   }
                 });
               }
             });
             
-            // Convert to array and add an invalid tier for testing
-            const tiersArray = Array.from(tierMap.values());
+            // Convert to tier objects
+            const tiersArray: Tier[] = Array.from(tierSet).map(tierId => ({
+              id: tierId,
+              name: tierId.split('-').map((word: string) => 
+                word.charAt(0).toUpperCase() + word.slice(1)
+              ).join(' '),
+              description: `${tierId} tier from auth policy`,
+              apiKey: `${tierId}_key`,
+              limits: 'Policy-based limits'
+            }));
+            
+            // Add an invalid tier for testing
             tiersArray.push({
               id: 'invalid',
               name: 'Invalid Key',
@@ -1007,26 +1007,7 @@ data:
         fetchTiers();
       }, []);
 
-      const handleDragStart = (e: React.DragEvent, item: Model | Tier, type: 'model' | 'tier') => {
-        e.dataTransfer.setData('application/json', JSON.stringify({ item, type }));
-      };
-
-      const handleDragOver = (e: React.DragEvent) => {
-        e.preventDefault();
-      };
-
-      const handleDrop = (e: React.DragEvent, target: 'model' | 'tier') => {
-        e.preventDefault();
-        const data = JSON.parse(e.dataTransfer.getData('application/json'));
-        
-        if (data.type === 'model' && target === 'model') {
-          setSelectedModel(data.item);
-        } else if (data.type === 'tier' && target === 'tier') {
-          setSelectedTier(data.item);
-        }
-      };
-
-      const runSimulation = async () => {
+      const handleRunSimulation = async () => {
         console.log('Starting simulation...');
         
         if (!selectedModel || !selectedTier) {
@@ -1037,12 +1018,51 @@ data:
         setIsRunning(true);
         
         try {
-          // Run simulation sequentially to avoid issues
+          // Run simulation for the specified number of requests
+          const newResults: any[] = [];
           for (let i = 1; i <= numRequests; i++) {
-            await sendSingleRequest(i);
-            // Small delay between requests
-            await new Promise(resolve => setTimeout(resolve, 200));
+            try {
+              // Make real API call to the backend simulator
+              const response = await apiService.simulateRequest({
+                model: selectedModel.id,
+                messages: [
+                  { role: 'user', content: queryText }
+                ],
+                max_tokens: maxTokens,
+                tier: selectedTier.id,
+                apiKey: selectedTier.apiKey
+              });
+
+              // Process successful response
+              newResults.push({
+                id: `sim-${Date.now()}-${i}`,
+                timestamp: new Date().toISOString(),
+                decision: 'accept',
+                reason: 'Request completed successfully',
+                model: selectedModel.name,
+                tier: selectedTier.name,
+                responseData: response.data,
+                debug: response.debug
+              });
+              
+            } catch (error: any) {
+              // Process error response (rate limited, auth failed, etc.)
+              console.error(`Request ${i} failed:`, error);
+              newResults.push({
+                id: `sim-${Date.now()}-${i}`,
+                timestamp: new Date().toISOString(),
+                decision: 'reject',
+                reason: error.message || 'Request failed',
+                model: selectedModel.name,
+                tier: selectedTier.name,
+                error: error
+              });
+            }
+            
+            // Small delay between requests to avoid overwhelming the system
+            await new Promise(resolve => setTimeout(resolve, 500));
           }
+          setResults(prev => [...newResults, ...prev]);
         } catch (error) {
           console.error('Simulation error:', error);
         } finally {
@@ -1051,534 +1071,213 @@ data:
         }
       };
 
-      const sendSingleRequest = async (requestNum: number) => {
-        console.log(`Processing request ${requestNum}...`);
-        const startTime = Date.now();
-
-        const requestData = {
-          model: selectedModel!.id,
-          messages: [{ role: 'user', content: `${queryText} (Request #${requestNum})` }],
-          max_tokens: maxTokens
-        };
-
-        const headers: Record<string, string> = {
-          'Content-Type': 'application/json'
-        };
-
-        if (selectedTier!.apiKey) {
-          headers['Authorization'] = `Bearer ${selectedTier!.apiKey}`;
-        }
-
-        // Add a small delay to simulate network request
-        await new Promise(resolve => setTimeout(resolve, Math.random() * 300 + 100));
-
-        try {
-          // Simulate policy enforcement based on tier and request patterns
-          let decision: SimulationResult['decision'] = 'success';
-          let status = 200;
-          let policyEnforcement: any = {};
-          
-          // Simulate auth failures for invalid tiers
-          if (selectedTier!.id === 'invalid' || !selectedTier!.apiKey) {
-            decision = 'auth_failed';
-            status = 401;
-            policyEnforcement = {
-              authPolicy: 'gateway-auth-policy',
-              reason: 'Authentication failed - invalid or missing API key'
-            };
-          }
-          // Simulate rate limiting for test-tokens tiers (simulate hitting limit after a few requests)
-          else if (selectedTier!.id.startsWith('test-tokens') && requestNum > 5) {
-            decision = 'rate_limited';
-            status = 429;
-            policyEnforcement = {
-              rateLimitPolicy: 'gateway-token-rate-limits',
-              reason: `Rate limit exceeded for tier: ${selectedTier!.name} (${requestNum}/5 requests)`
-            };
-          }
-          // Simulate occasional rate limiting for other tiers based on request number
-          else if (requestNum > 15 && Math.random() < 0.3) {
-            decision = 'rate_limited';
-            status = 429;
-            policyEnforcement = {
-              rateLimitPolicy: 'gateway-rate-limits',
-              reason: `Rate limit exceeded for tier: ${selectedTier!.name}`
-            };
-          }
-
-          const responseTime = Date.now() - startTime;
-          
-          // Create mock response body
-          let responseBody;
-          if (decision === 'success') {
-            responseBody = {
-              choices: [{
-                message: {
-                  content: `Hello! This is a simulated response from ${selectedModel!.name} for your query: "${queryText.substring(0, 50)}${queryText.length > 50 ? '...' : ''}". This request was processed successfully under the ${selectedTier!.name} tier. Request #${requestNum} completed.`
-                }
-              }],
-              usage: {
-                prompt_tokens: Math.floor(queryText.length / 4),
-                completion_tokens: maxTokens,
-                total_tokens: Math.floor(queryText.length / 4) + maxTokens
-              }
-            };
-          } else {
-            responseBody = {
-              error: {
-                message: policyEnforcement.reason || 'Request failed',
-                type: decision === 'auth_failed' ? 'authentication_error' : 'rate_limit_exceeded'
-              }
-            };
-          }
-
-          const result: SimulationResult = {
-            id: `sim-${Date.now()}-${requestNum}-${Math.random().toString(36).substr(2, 9)}`,
-            timestamp: new Date().toISOString(),
-            model: selectedModel!,
-            tier: selectedTier!,
-            request: {
-              method: 'POST',
-              url: `${selectedModel!.endpoint}/v1/chat/completions`,
-              headers,
-              body: requestData
-            },
-            response: {
-              status,
-              statusText: status === 200 ? 'OK' : 
-                         status === 401 ? 'Unauthorized' :
-                         status === 429 ? 'Too Many Requests' : 'Error',
-              headers: {
-                'content-type': 'application/json',
-                'x-request-id': `req-${Date.now()}-${requestNum}`
-              },
-              body: responseBody,
-              responseTime
-            },
-            decision,
-            policyEnforcement
-          };
-
-          // Add result to state
-          setResults(prev => [result, ...prev]);
-
-        } catch (error) {
-          const responseTime = Date.now() - startTime;
-          const result: SimulationResult = {
-            id: `sim-error-${Date.now()}-${requestNum}`,
-            timestamp: new Date().toISOString(),
-            model: selectedModel!,
-            tier: selectedTier!,
-            request: {
-              method: 'POST',
-              url: `${selectedModel!.endpoint}/v1/chat/completions`,
-              headers,
-              body: requestData
-            },
-            response: {
-              status: 0,
-              statusText: 'Simulation Error',
-              headers: {},
-              body: { error: error instanceof Error ? error.message : 'Simulation error' },
-              responseTime
-            },
-            decision: 'error',
-            policyEnforcement: {
-              reason: 'Simulation error - this is a demo environment'
-            }
-          };
-
-          setResults(prev => [result, ...prev]);
-        }
-      };
-
-      const getDecisionColor = (decision: SimulationResult['decision']) => {
-        switch (decision) {
-          case 'success': return 'success';
-          case 'auth_failed': return 'error';
-          case 'rate_limited': return 'warning';
-          case 'error': return 'error';
-          default: return 'default';
-        }
-      };
-
-      const getDecisionStyles = (decision: SimulationResult['decision']) => {
-        switch (decision) {
-          case 'success': 
-            return { 
-              backgroundColor: '#2e7d32', 
-              color: '#ffffff',
-              fontWeight: 'bold'
-            };
-          case 'auth_failed': 
-            return { 
-              backgroundColor: '#d32f2f', 
-              color: '#ffffff',
-              fontWeight: 'bold'
-            };
-          case 'rate_limited': 
-            return { 
-              backgroundColor: '#f57c00', 
-              color: '#ffffff',
-              fontWeight: 'bold'
-            };
-          case 'error': 
-            return { 
-              backgroundColor: '#d32f2f', 
-              color: '#ffffff',
-              fontWeight: 'bold'
-            };
-          default: 
-            return { 
-              backgroundColor: '#757575', 
-              color: '#ffffff'
-            };
-        }
-      };
-
-      const getDecisionIcon = (decision: SimulationResult['decision']) => {
-        switch (decision) {
-          case 'success': return <SuccessIcon />;
-          case 'auth_failed': return <AuthIcon />;
-          case 'rate_limited': return <RateLimitIcon />;
-          case 'error': return <ErrorIcon />;
-          default: return <ErrorIcon />;
-        }
-      };
-
-      const copyToClipboard = (text: string) => {
-        navigator.clipboard.writeText(text);
-      };
-
       return (
-        <Box sx={{ height: '100vh', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
-          {/* Header */}
-          <Box sx={{ 
-            background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-            color: 'white',
-            p: 2,
-            mb: 2
-          }}>
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-              <SimulatorIcon sx={{ fontSize: 32 }} />
-              <Box>
-                <Typography variant="h5" sx={{ fontWeight: 600, mb: 0.5 }}>
-                  Request Simulator
-                </Typography>
-                <Typography variant="body2" sx={{ opacity: 0.9 }}>
-                  Test Kuadrant policies with real-time simulation
-                </Typography>
-              </Box>
-            </Box>
-          </Box>
+        <Box>
+          <Typography variant="h4" component="h1" gutterBottom>
+            Request Simulator
+          </Typography>
+          
+          <Typography variant="body1" color="text.secondary" sx={{ mb: 2 }}>
+            Test your policies by simulating requests and seeing how they would be handled by Kuadrant.
+          </Typography>
 
-          <Box sx={{ flexGrow: 1, overflow: 'auto', px: 2 }}>
-            <Grid container spacing={3}>
-              {/* Left Panel - Model and Tier Selection */}
-              <Grid item xs={12} md={8}>
-                <Card sx={{ 
-                  bgcolor: 'background.paper',
-                  border: 'none',
-                  boxShadow: '0 4px 20px rgba(0,0,0,0.1)',
-                  minHeight: 'calc(100vh - 200px)'
-                }}>
-                  <CardContent sx={{ p: 3, display: 'flex', flexDirection: 'column' }}>
-                    <Typography variant="h6" sx={{ mb: 3, color: 'text.primary', fontWeight: 600 }}>
-                      Select Model and Tier
-                    </Typography>
-                    
-                    <Grid container spacing={3} sx={{ flexGrow: 1 }}>
-                      {/* Model Selection */}
-                      <Grid item xs={12} sm={6}>
-                        <Box sx={{ mb: 2 }}>
-                          <Typography variant="subtitle2" sx={{ mb: 2, color: 'text.primary', fontWeight: 600 }}>
-                            Available Models
-                          </Typography>
-                          <Stack spacing={2}>
-                            {availableModels.map((model) => (
-                              <Paper
-                                key={model.id}
-                                onClick={() => setSelectedModel(model)}
-                                sx={{
-                                  p: 2,
-                                  cursor: 'pointer',
-                                  background: selectedModel?.id === model.id 
-                                    ? 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)'
-                                    : 'background.default',
-                                  color: selectedModel?.id === model.id ? 'white' : 'text.primary',
-                                  border: selectedModel?.id === model.id ? 'none' : '1px solid',
-                                  borderColor: 'divider',
-                                  transition: 'all 0.3s ease',
-                                  '&:hover': {
-                                    transform: 'translateY(-2px)',
-                                    boxShadow: '0 4px 12px rgba(0,0,0,0.15)'
-                                  }
-                                }}
-                              >
-                                <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-                                  <ModelIcon />
-                                  <Box>
-                                    <Typography variant="body1" fontWeight="600">
-                                      {model.name}
-                                    </Typography>
-                                    <Typography variant="caption" sx={{ opacity: 0.8 }}>
-                                      {model.description}
-                                    </Typography>
-                                  </Box>
-                                </Box>
-                              </Paper>
-                            ))}
-                          </Stack>
-                        </Box>
-                      </Grid>
-
-                      {/* Tier Selection */}
-                      <Grid item xs={12} sm={6}>
-                        <Box sx={{ mb: 2, height: '100%', display: 'flex', flexDirection: 'column' }}>
-                          <Typography variant="subtitle2" sx={{ mb: 2, color: 'text.primary', fontWeight: 600 }}>
-                            Available Tiers
-                          </Typography>
-                          {tiersLoading ? (
-                            <Box sx={{ display: 'flex', justifyContent: 'center', p: 3 }}>
-                              <CircularProgress size={24} />
-                              <Typography variant="body2" sx={{ ml: 2, color: 'text.secondary' }}>
-                                Loading tiers from policies...
-                              </Typography>
+          <Grid container spacing={4} sx={{ mb: 4 }}>
+            {/* Left Panel - Model and Tier Selection */}
+            <Grid item xs={12} md={8}>
+              <Card sx={{ minHeight: 'calc(100vh - 200px)' }}>
+                <CardContent sx={{ display: 'flex', flexDirection: 'column' }}>
+                  <Typography variant="h6" gutterBottom>
+                    Select Model and Tier
+                  </Typography>
+                  
+                  <Grid container spacing={3}>
+                    {/* Model Selection */}
+                    <Grid item xs={12} sm={6}>
+                      <Typography variant="subtitle2" sx={{ mb: 2, fontWeight: 600 }}>
+                        Available Models
+                      </Typography>
+                      <Stack spacing={2}>
+                        {availableModels.map((model) => (
+                          <Paper
+                            key={model.id}
+                            onClick={() => setSelectedModel(model)}
+                            sx={{
+                              p: 2,
+                              cursor: 'pointer',
+                              background: selectedModel?.id === model.id 
+                                ? 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)'
+                                : 'background.default',
+                              color: selectedModel?.id === model.id ? 'white' : 'text.primary',
+                              border: selectedModel?.id === model.id ? 'none' : '1px solid',
+                              borderColor: 'divider',
+                              transition: 'all 0.3s ease',
+                              '&:hover': {
+                                transform: 'translateY(-2px)',
+                                boxShadow: '0 4px 12px rgba(0,0,0,0.15)'
+                              }
+                            }}
+                          >
+                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+                              <ModelIcon />
+                              <Box>
+                                <Typography variant="body1" fontWeight="600">
+                                  {model.name}
+                                </Typography>
+                                <Typography variant="caption" sx={{ opacity: 0.8 }}>
+                                  {model.description}
+                                </Typography>
+                              </Box>
                             </Box>
-                          ) : (
-                            <Box sx={{ flexGrow: 1, overflow: 'auto', maxHeight: '400px' }}>
-                              <Stack spacing={2}>
-                              {availableTiers.map((tier) => (
-                              <Paper
-                                key={tier.id}
-                                onClick={() => setSelectedTier(tier)}
-                                sx={{
-                                  p: 2,
-                                  cursor: 'pointer',
-                                  background: selectedTier?.id === tier.id 
-                                    ? tier.id === 'invalid' 
-                                      ? 'linear-gradient(135deg, #ff6b6b 0%, #ee5a24 100%)'
-                                      : tier.id === 'test-tokens-blue'
-                                      ? 'linear-gradient(135deg, #4facfe 0%, #00f2fe 100%)'
-                                      : tier.id === 'test-tokens-green'
-                                      ? 'linear-gradient(135deg, #43e97b 0%, #38f9d7 100%)'
-                                      : tier.id.startsWith('test-tokens')
-                                      ? 'linear-gradient(135deg, #fa709a 0%, #fee140 100%)'
-                                      : 'linear-gradient(135deg, #a8edea 0%, #fed6e3 100%)'
-                                    : 'background.default',
-                                  color: selectedTier?.id === tier.id 
-                                    ? tier.id === 'invalid' || tier.id.startsWith('test-tokens') ? 'white' : 'text.primary'
-                                    : 'text.primary',
-                                  border: selectedTier?.id === tier.id ? 'none' : '1px solid',
-                                  borderColor: 'divider',
-                                  transition: 'all 0.3s ease',
-                                  '&:hover': {
-                                    transform: 'translateY(-2px)',
-                                    boxShadow: '0 4px 12px rgba(0,0,0,0.15)'
-                                  }
-                                }}
-                              >
-                                <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-                                  <TierIcon />
-                                  <Box>
-                                    <Typography variant="body1" fontWeight="600">
-                                      {tier.name}
-                                    </Typography>
-                                    <Typography variant="caption" sx={{ opacity: 0.8 }}>
-                                      {tier.limits}
-                                    </Typography>
-                                  </Box>
-                                </Box>
-                              </Paper>
-                              ))}
-                              </Stack>
-                            </Box>
-                          )}
-                        </Box>
-                      </Grid>
+                          </Paper>
+                        ))}
+                      </Stack>
                     </Grid>
 
-                    {/* Results Section */}
-                    <Box sx={{ mt: 3, display: 'flex', flexDirection: 'column', minHeight: '300px' }}>
-                      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
-                        <Typography variant="h6" sx={{ color: 'text.primary', fontWeight: 600 }}>
-                          Test Results ({results.length})
-                        </Typography>
-                        {results.length > 0 && (
-                          <Button
-                            size="small"
-                            onClick={() => setResults([])}
-                            sx={{ color: 'text.secondary' }}
-                          >
-                            Clear All
-                          </Button>
-                        )}
-                      </Box>
-
-                      {results.length === 0 ? (
-                        <Box sx={{ 
-                          flexGrow: 1, 
-                          display: 'flex', 
-                          alignItems: 'center', 
-                          justifyContent: 'center',
-                          color: 'text.secondary'
-                        }}>
-                          <Typography variant="body1">
-                            No test results yet. Configure and run a simulation to see results here.
+                    {/* Tier Selection */}
+                    <Grid item xs={12} sm={6}>
+                      <Typography variant="subtitle2" sx={{ mb: 2, fontWeight: 600 }}>
+                        Available Tiers
+                      </Typography>
+                      {tiersLoading ? (
+                        <Box sx={{ display: 'flex', justifyContent: 'center', p: 3 }}>
+                          <CircularProgress size={24} />
+                          <Typography variant="body2" sx={{ ml: 2, color: 'text.secondary' }}>
+                            Loading tiers from policies...
                           </Typography>
                         </Box>
                       ) : (
-                        <Box>
-                          <Stack spacing={1}>
-                            {results.map((result, index) => (
-                                <Paper
-                                  key={result.id}
-                                  sx={{
-                                    p: 2,
-                                    border: '1px solid',
-                                    borderColor: 'divider',
-                                    borderLeft: `4px solid ${
-                                      result.decision === 'success' ? '#27ae60' :
-                                      result.decision === 'auth_failed' ? '#e74c3c' :
-                                      result.decision === 'rate_limited' ? '#f39c12' : '#95a5a6'
-                                    }`,
-                                    bgcolor: 'background.paper',
-                                    '&:hover': {
-                                      boxShadow: '0 2px 8px rgba(0,0,0,0.1)',
-                                      cursor: 'pointer'
-                                    }
-                                  }}
-                                  onClick={() => setDetailDialog(result)}
-                                >
-                                  <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-                                      <Chip
-                                        icon={getDecisionIcon(result.decision)}
-                                        label={result.decision.replace('_', ' ').toUpperCase()}
-                                        size="small"
-                                        sx={{
-                                          bgcolor: result.decision === 'success' ? '#27ae60' :
-                                                  result.decision === 'auth_failed' ? '#e74c3c' :
-                                                  result.decision === 'rate_limited' ? '#f39c12' : '#95a5a6',
-                                          color: 'white',
-                                          fontWeight: 600
-                                        }}
-                                      />
-                                      <Typography variant="body2" sx={{ color: 'text.primary' }}>
-                                        {result.model.name} • {result.tier.name}
-                                      </Typography>
-                                    </Box>
-                                    <Typography variant="body2" sx={{ color: 'text.secondary', fontWeight: 600 }}>
-                                      {result.response.responseTime}ms
-                                    </Typography>
-                                  </Box>
-                                  {result.policyEnforcement?.reason && (
-                                    <Typography variant="caption" sx={{ 
-                                      display: 'block', 
-                                      mt: 1, 
-                                      color: 'error.main',
-                                      fontStyle: 'italic'
-                                    }}>
-                                      {result.policyEnforcement.reason}
-                                    </Typography>
-                                  )}
-                                </Paper>
-                            ))}
+                        <Box sx={{ flexGrow: 1, overflow: 'auto', maxHeight: '400px' }}>
+                          <Stack spacing={2}>
+                          {availableTiers.map((tier) => (
+                            <Paper
+                              key={tier.id}
+                              onClick={() => setSelectedTier(tier)}
+                              sx={{
+                                p: 2,
+                                cursor: 'pointer',
+                                background: selectedTier?.id === tier.id 
+                                  ? tier.id === 'invalid' 
+                                    ? 'linear-gradient(135deg, #ff6b6b 0%, #ee5a24 100%)'
+                                    : tier.id === 'test-tokens-blue'
+                                    ? 'linear-gradient(135deg, #4facfe 0%, #00f2fe 100%)'
+                                    : tier.id === 'test-tokens-green'
+                                    ? 'linear-gradient(135deg, #43e97b 0%, #38f9d7 100%)'
+                                    : tier.id.startsWith('test-tokens')
+                                    ? 'linear-gradient(135deg, #fa709a 0%, #fee140 100%)'
+                                    : 'linear-gradient(135deg, #a8edea 0%, #fed6e3 100%)'
+                                  : 'background.default',
+                                color: selectedTier?.id === tier.id 
+                                  ? tier.id === 'invalid' || tier.id.startsWith('test-tokens') ? 'white' : 'text.primary'
+                                  : 'text.primary',
+                                border: selectedTier?.id === tier.id ? 'none' : '1px solid',
+                                borderColor: 'divider',
+                                transition: 'all 0.3s ease',
+                                '&:hover': {
+                                  transform: 'translateY(-2px)',
+                                  boxShadow: '0 4px 12px rgba(0,0,0,0.15)'
+                                }
+                              }}
+                            >
+                              <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+                                <TierIcon />
+                                <Box>
+                                  <Typography variant="body1" fontWeight="600">
+                                    {tier.name}
+                                  </Typography>
+                                  <Typography variant="caption" sx={{ opacity: 0.8 }}>
+                                    {tier.limits}
+                                  </Typography>
+                                </Box>
+                              </Box>
+                            </Paper>
+                          ))}
                           </Stack>
                         </Box>
                       )}
-                    </Box>
-                  </CardContent>
-                </Card>
-              </Grid>
+                    </Grid>
+                  </Grid>
+                </CardContent>
+              </Card>
+            </Grid>
 
-              {/* Right Panel - Configuration */}
-              <Grid item xs={12} md={4}>
-                <Card sx={{ 
-                  bgcolor: 'background.paper',
-                  border: 'none',
-                  boxShadow: '0 4px 20px rgba(0,0,0,0.1)',
-                  height: 'calc(100vh - 200px)'
-                }}>
-                  <CardContent sx={{ p: 3, height: '100%', display: 'flex', flexDirection: 'column' }}>
-                    <Typography variant="h6" sx={{ mb: 3, color: 'text.primary', fontWeight: 600 }}>
-                      Request Configuration
-                    </Typography>
+            {/* Right Panel - Configuration */}
+            <Grid item xs={12} md={4}>
+              <Card>
+                <CardContent>
+                  <Typography variant="h6" gutterBottom>
+                    Request Configuration
+                  </Typography>
+                  
+                  <Box sx={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+                    <TextField
+                      fullWidth
+                      label="Query Text"
+                      value={queryText}
+                      onChange={(e) => setQueryText(e.target.value)}
+                      multiline
+                      rows={4}
+                      sx={{ 
+                        '& .MuiOutlinedInput-root': {
+                          bgcolor: mode === 'dark' ? 'grey.900' : 'background.default',
+                          color: 'text.primary'
+                        },
+                        '& .MuiInputLabel-root': {
+                          color: 'text.secondary'
+                        }
+                      }}
+                    />
+                    
+                    <TextField
+                      fullWidth
+                      label="Max Tokens"
+                      type="number"
+                      value={maxTokens}
+                      onChange={(e) => setMaxTokens(parseInt(e.target.value))}
+                      sx={{ 
+                        '& .MuiOutlinedInput-root': {
+                          bgcolor: mode === 'dark' ? 'grey.900' : 'background.default',
+                          color: 'text.primary'
+                        },
+                        '& .MuiInputLabel-root': {
+                          color: 'text.secondary'
+                        }
+                      }}
+                    />
 
-                    {/* Configuration Form */}
-                    <Box sx={{ flexGrow: 1, display: 'flex', flexDirection: 'column', gap: 3 }}>
-                      <TextField
-                        fullWidth
-                        label="Query Text"
-                        value={queryText}
-                        onChange={(e) => setQueryText(e.target.value)}
-                        multiline
-                        rows={4}
-                        sx={{ 
-                          '& .MuiOutlinedInput-root': {
-                            bgcolor: mode === 'dark' ? 'grey.900' : 'background.default',
-                            color: 'text.primary'
-                          },
-                          '& .MuiInputLabel-root': {
-                            color: 'text.secondary'
-                          }
-                        }}
-                      />
-                      
-                      <TextField
-                        fullWidth
-                        label="Max Tokens"
-                        type="number"
-                        value={maxTokens}
-                        onChange={(e) => setMaxTokens(parseInt(e.target.value))}
-                        sx={{ 
-                          '& .MuiOutlinedInput-root': {
-                            bgcolor: mode === 'dark' ? 'grey.900' : 'background.default',
-                            color: 'text.primary'
-                          },
-                          '& .MuiInputLabel-root': {
-                            color: 'text.secondary'
-                          }
-                        }}
-                      />
+                    <TextField
+                      fullWidth
+                      label="Number of Requests"
+                      type="number"
+                      value={numRequests}
+                      onChange={(e) => setNumRequests(parseInt(e.target.value))}
+                      inputProps={{ min: 1, max: 50 }}
+                      sx={{ 
+                        '& .MuiOutlinedInput-root': {
+                          bgcolor: mode === 'dark' ? 'grey.900' : 'background.default',
+                          color: 'text.primary'
+                        },
+                        '& .MuiInputLabel-root': {
+                          color: 'text.secondary'
+                        }
+                      }}
+                    />
 
-                      <TextField
-                        fullWidth
-                        label="Number of Requests"
-                        type="number"
-                        value={numRequests}
-                        onChange={(e) => setNumRequests(parseInt(e.target.value))}
-                        inputProps={{ min: 1, max: 50 }}
-                        sx={{ 
-                          '& .MuiOutlinedInput-root': {
-                            bgcolor: mode === 'dark' ? 'grey.900' : 'background.default',
-                            color: 'text.primary'
-                          },
-                          '& .MuiInputLabel-root': {
-                            color: 'text.secondary'
-                          }
-                        }}
-                      />
+                    {selectedModel && selectedTier && (
+                      <Alert severity="info">
+                        <Typography variant="body2">
+                          <strong>Ready:</strong> {selectedModel.name} with {selectedTier.name} tier
+                        </Typography>
+                      </Alert>
+                    )}
 
-                      {selectedModel && selectedTier && (
-                        <Alert severity="info" sx={{ mb: 2 }}>
-                          <Typography variant="body2">
-                            <strong>Ready:</strong> {selectedModel.name} with {selectedTier.name} tier
-                          </Typography>
-                        </Alert>
-                      )}
-                    </Box>
-
-                    {/* Run Button */}
                     <Button
                       variant="contained"
                       size="large"
                       fullWidth
                       startIcon={isRunning ? <CircularProgress size={20} color="inherit" /> : <PlayIcon />}
-                      onClick={runSimulation}
+                      onClick={handleRunSimulation}
                       disabled={!selectedModel || !selectedTier || isRunning}
                       sx={{
-                        mt: 'auto',
                         py: 2,
                         fontSize: '1.1rem',
                         fontWeight: 600,
@@ -1594,121 +1293,37 @@ data:
                     >
                       {isRunning ? `Running ${numRequests} Requests...` : `Run ${numRequests} Request${numRequests > 1 ? 's' : ''}`}
                     </Button>
-                  </CardContent>
-                </Card>
-              </Grid>
+                  </Box>
+                </CardContent>
+              </Card>
             </Grid>
-          </Box>
+          </Grid>
 
-          {/* Detail Dialog */}
-          <Dialog open={!!detailDialog} onClose={() => setDetailDialog(null)} maxWidth="md" fullWidth>
-            <DialogTitle>
-              Simulation Details
-              {detailDialog && (
-                <Chip
-                  icon={getDecisionIcon(detailDialog.decision)}
-                  label={detailDialog.decision.replace('_', ' ').toUpperCase()}
-                  color={getDecisionColor(detailDialog.decision)}
-                  sx={{ ml: 2 }}
-                />
-              )}
-            </DialogTitle>
-            <DialogContent>
-              {detailDialog && (
-                <Box>
-                  <Accordion defaultExpanded>
-                    <AccordionSummary expandIcon={<ExpandMoreIcon />}>
-                      <Typography variant="h6">Request Details</Typography>
-                    </AccordionSummary>
-                    <AccordionDetails>
-                      <Box sx={{ fontFamily: 'monospace', fontSize: '0.875rem' }}>
-                        <Typography variant="subtitle2" gutterBottom>Method & URL:</Typography>
-                        <Box sx={{ backgroundColor: '#f5f5f5', p: 1, borderRadius: 1, mb: 2 }}>
-                          {detailDialog.request.method} {detailDialog.request.url}
-                          <IconButton size="small" onClick={() => copyToClipboard(`${detailDialog.request.method} ${detailDialog.request.url}`)}>
-                            <CopyIcon fontSize="small" />
-                          </IconButton>
-                        </Box>
-
-                        <Typography variant="subtitle2" gutterBottom>Headers:</Typography>
-                        <Box sx={{ backgroundColor: '#f5f5f5', p: 1, borderRadius: 1, mb: 2 }}>
-                          <pre>{JSON.stringify(detailDialog.request.headers, null, 2)}</pre>
-                        </Box>
-
-                        <Typography variant="subtitle2" gutterBottom>Body:</Typography>
-                        <Box sx={{ backgroundColor: '#f5f5f5', p: 1, borderRadius: 1 }}>
-                          <pre>{JSON.stringify(detailDialog.request.body, null, 2)}</pre>
-                        </Box>
-                      </Box>
-                    </AccordionDetails>
-                  </Accordion>
-
-                  <Accordion>
-                    <AccordionSummary expandIcon={<ExpandMoreIcon />}>
-                      <Typography variant="h6">Response Details</Typography>
-                    </AccordionSummary>
-                    <AccordionDetails>
-                      <Box sx={{ fontFamily: 'monospace', fontSize: '0.875rem' }}>
-                        <Typography variant="subtitle2" gutterBottom>Status:</Typography>
-                        <Box sx={{ backgroundColor: '#f5f5f5', p: 1, borderRadius: 1, mb: 2 }}>
-                          {detailDialog.response.status} {detailDialog.response.statusText} ({detailDialog.response.responseTime}ms)
-                        </Box>
-
-                        <Typography variant="subtitle2" gutterBottom>Headers:</Typography>
-                        <Box sx={{ backgroundColor: '#f5f5f5', p: 1, borderRadius: 1, mb: 2 }}>
-                          <pre>{JSON.stringify(detailDialog.response.headers, null, 2)}</pre>
-                        </Box>
-
-                        <Typography variant="subtitle2" gutterBottom>Body:</Typography>
-                        <Box sx={{ backgroundColor: '#f5f5f5', p: 1, borderRadius: 1 }}>
-                          <pre>{JSON.stringify(detailDialog.response.body, null, 2)}</pre>
-                        </Box>
-                      </Box>
-                    </AccordionDetails>
-                  </Accordion>
-
-                  {detailDialog.policyEnforcement && (
-                    <Accordion>
-                      <AccordionSummary expandIcon={<ExpandMoreIcon />}>
-                        <Typography variant="h6">Policy Enforcement</Typography>
-                      </AccordionSummary>
-                      <AccordionDetails>
-                        <List dense>
-                          {detailDialog.policyEnforcement.authPolicy && (
-                            <ListItem>
-                              <ListItemText 
-                                primary="Auth Policy"
-                                secondary={detailDialog.policyEnforcement.authPolicy}
-                              />
-                            </ListItem>
-                          )}
-                          {detailDialog.policyEnforcement.rateLimitPolicy && (
-                            <ListItem>
-                              <ListItemText 
-                                primary="Rate Limit Policy"
-                                secondary={detailDialog.policyEnforcement.rateLimitPolicy}
-                              />
-                            </ListItem>
-                          )}
-                          {detailDialog.policyEnforcement.reason && (
-                            <ListItem>
-                              <ListItemText 
-                                primary="Reason"
-                                secondary={detailDialog.policyEnforcement.reason}
-                              />
-                            </ListItem>
-                          )}
-                        </List>
-                      </AccordionDetails>
-                    </Accordion>
-                  )}
-                </Box>
-              )}
-            </DialogContent>
-            <DialogActions>
-              <Button onClick={() => setDetailDialog(null)}>Close</Button>
-            </DialogActions>
-          </Dialog>
+          {results.length > 0 && (
+            <Card>
+              <CardContent>
+                <Typography variant="h6" gutterBottom>
+                  Simulation Results
+                </Typography>
+                
+                <Alert severity="success" sx={{ mb: 2 }}>
+                  Simulation completed successfully! Found {results.length} result(s).
+                </Alert>
+                
+                {results.map((result) => (
+                  <Box key={result.id} sx={{ mb: 2, p: 2, border: '1px solid #ccc', borderRadius: 1 }}>
+                    <Typography variant="body2">
+                      <strong>Decision:</strong> {result.decision}<br />
+                      <strong>Reason:</strong> {result.reason}<br />
+                      <strong>Model:</strong> {result.model}<br />
+                      <strong>Tier:</strong> {result.tier}<br />
+                      <strong>Time:</strong> {new Date(result.timestamp).toLocaleString()}
+                    </Typography>
+                  </Box>
+                ))}
+              </CardContent>
+            </Card>
+          )}
         </Box>
       );
     };
