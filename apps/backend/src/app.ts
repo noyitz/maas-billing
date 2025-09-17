@@ -54,61 +54,6 @@ app.use('/api/v1/policies', policiesRoutes);
 app.use('/api/v1/tokens', tokensRoutes);
 app.use('/api/v1/simulator', simulatorRoutes);
 
-// Teams route (for frontend compatibility - proxy to tokens/teams)
-app.get('/api/v1/teams', async (req, res) => {
-  try {
-    // This should now return the real error from the key manager
-    const axios = require('axios');
-    const response = await axios.get(`http://localhost:${PORT}/api/v1/tokens/teams`);
-    res.status(response.status).json(response.data);
-  } catch (error: any) {
-    if (error.response) {
-      res.status(error.response.status).json(error.response.data);
-    } else {
-      res.status(503).json({
-        success: false,
-        error: 'Teams service unavailable',
-        details: error.message
-      });
-    }
-  }
-});
-
-// Create team token route (for frontend compatibility - proxy to tokens/create)
-app.post('/api/v1/teams/:teamId/keys', async (req, res) => {
-  try {
-    const { teamId } = req.params;
-    const { user_id, alias } = req.body;
-    
-    // Transform the request to match our existing token creation endpoint
-    const tokenCreateRequest = {
-      name: alias || `${user_id}-${teamId}-token`,
-      description: `Token: ${alias || `${user_id}-${teamId}-token`}`,
-      team_id: teamId
-    };
-    
-    const axios = require('axios');
-    const response = await axios.post(`http://localhost:${PORT}/api/v1/tokens/create`, tokenCreateRequest);
-    
-    // Transform response to match frontend expectations
-    const responseData = response.data;
-    if (responseData.success && responseData.data && responseData.data.token) {
-      responseData.data.api_key = responseData.data.token; // Add api_key field for frontend compatibility
-    }
-    
-    res.status(response.status).json(responseData);
-  } catch (error: any) {
-    if (error.response) {
-      res.status(error.response.status).json(error.response.data);
-    } else {
-      res.status(503).json({
-        success: false,
-        error: 'Token creation service unavailable',
-        details: error.message
-      });
-    }
-  }
-});
 
 // QoS proxy endpoints
 app.get('/api/v1/qos/metrics', async (req, res) => {
@@ -133,25 +78,58 @@ app.get('/api/v1/qos/health', async (req, res) => {
   }
 });
 
-// Models endpoint for compatibility
-app.get('/api/v1/models', (req, res) => {
-  res.json({
-    success: true,
-    data: [
-      {
-        id: 'vllm-simulator',
-        name: 'vLLM Simulator',
-        provider: 'KServe',
-        description: 'Test model for policy enforcement'
-      },
-      {
-        id: 'qwen3-0-6b-instruct',
-        name: 'Qwen3 0.6B Instruct',
-        provider: 'KServe',
-        description: 'Qwen3 model with vLLM runtime'
-      }
-    ]
-  });
+// Models endpoint - Requires MaaS API configuration
+app.get('/api/v1/models', async (req, res) => {
+  const USE_LOCAL_MAAS_API = process.env.USE_LOCAL_MAAS_API === 'true';
+  const MAAS_API_URL = process.env.MAAS_API_URL;
+  
+  if (!USE_LOCAL_MAAS_API) {
+    return res.status(503).json({
+      success: false,
+      error: 'MaaS API not enabled',
+      details: 'Set USE_LOCAL_MAAS_API=true to enable model discovery'
+    });
+  }
+  
+  if (!MAAS_API_URL) {
+    return res.status(500).json({
+      success: false,
+      error: 'MaaS API URL not configured',
+      details: 'MAAS_API_URL environment variable is required'
+    });
+  }
+  
+  try {
+    const axios = require('axios');
+    const response = await axios.get(`${MAAS_API_URL}/models`, {
+      timeout: 10000
+    });
+    
+    // Transform MaaS API response to frontend format
+    const models = response.data?.models || [];
+    const transformedModels = models.map((model: any) => ({
+      id: model.name,
+      name: model.name,
+      provider: 'KServe',
+      description: `${model.name} Model`,
+      namespace: model.namespace,
+      url: model.url,
+      ready: model.ready
+    }));
+    
+    logger.info(`Retrieved ${transformedModels.length} models from MaaS API`);
+    res.json({
+      success: true,
+      data: transformedModels
+    });
+  } catch (error: any) {
+    logger.error('Failed to fetch models from MaaS API:', error.message);
+    res.status(503).json({
+      success: false,
+      error: 'Failed to fetch models from MaaS API',
+      details: error.message
+    });
+  }
 });
 
 // Cluster status endpoint for authentication dialog
@@ -185,6 +163,74 @@ app.get('/api/v1/cluster/status', async (req, res) => {
     res.status(500).json({
       success: false,
       error: 'Could not get cluster status'
+    });
+  }
+});
+
+// User info endpoint - Simple OpenShift user and group lookup
+app.get('/api/v1/user', async (req, res) => {
+  try {
+    const { exec } = require('child_process');
+    const { promisify } = require('util');
+    const execAsync = promisify(exec);
+    
+    let user = 'authenticated-user';
+    let groups: string[] = [];
+    
+    try {
+      const { stdout: whoamiOutput } = await execAsync('oc whoami');
+      user = whoamiOutput.trim();
+      
+      // Get user groups by checking group membership directly
+      const checkGroups = ['premium-users', 'enterprise-users', 'admin-users'];
+      for (const groupName of checkGroups) {
+        try {
+          const { stdout } = await execAsync(`oc get group ${groupName} -o jsonpath='{.users[*]}' 2>/dev/null`);
+          if (stdout && stdout.includes(user)) {
+            groups.push(groupName);
+            logger.info(`User ${user} is member of group: ${groupName}`);
+          }
+        } catch (e) {
+          // Group doesn't exist or no access - this is normal
+        }
+      }
+      
+      // Also check system:authenticated as it's typically included
+      groups.push('system:authenticated');
+      logger.info(`Found user groups for ${user}: ${groups.join(', ')}`);
+    } catch (error) {
+      logger.warn('Could not get user info via oc commands');
+    }
+    
+    // Simple tier determination based on OpenShift groups
+    let tier = 'free'; // default
+    if (groups.includes('premium-users')) {
+      tier = 'premium';
+    } else if (groups.includes('enterprise-users') || groups.includes('admin-users')) {
+      tier = 'enterprise';
+    }
+    
+    const userInfo = {
+      id: user,
+      name: user,
+      email: `${user}@${process.env.CLUSTER_DOMAIN || 'cluster.local'}`,
+      tier: tier,
+      groups: groups,
+      namespace: `maas-billing-tier-${tier}`,
+      cluster: process.env.CLUSTER_DOMAIN || 'your-cluster.example.com'
+    };
+    
+    res.json({
+      success: true,
+      data: userInfo,
+      timestamp: new Date().toISOString()
+    });
+  } catch (error: any) {
+    logger.error('Error getting user info:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Could not get user information',
+      details: error.message
     });
   }
 });

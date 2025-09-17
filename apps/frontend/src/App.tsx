@@ -29,7 +29,6 @@ import {
   Policy as PolicyIcon,
   BarChart as MetricsIcon,
   PlayArrow as SimulatorIcon,
-  Key as TokenIcon,
   Speed as QoSIcon,
   AccountCircle,
   Settings,
@@ -43,7 +42,6 @@ import {
 import PolicyManager from './components/PolicyManager';
 import MetricsDashboard from './components/MetricsDashboard';
 import RequestSimulator from './components/RequestSimulator';
-import TokenManagement from './components/TokenManagement';
 import AuthCallback from './components/AuthCallback';
 import QoSMonitor from './components/QoSMonitor';
 import { ThemeProvider, useTheme } from './contexts/ThemeContext';
@@ -155,8 +153,6 @@ function MainApp() {
         return <QoSMonitor />;
       case 'simulator':
         return <RequestSimulator />;
-      case 'tokens':
-        return <TokenManagement />;
       default:
         return <PolicyManager />;
     }
@@ -166,8 +162,7 @@ function MainApp() {
     { id: 'policies', label: 'Policy Manager', icon: <PolicyIcon /> },
     { id: 'metrics', label: 'Live Metrics', icon: <MetricsIcon /> },
     ...(experimentalMode ? [{ id: 'qos', label: 'QoS Monitor', icon: <QoSIcon /> }] : []),
-    { id: 'simulator', label: 'Request Simulator', icon: <SimulatorIcon /> },
-    { id: 'tokens', label: 'API Tokens', icon: <TokenIcon /> },
+    { id: 'simulator', label: 'Playground', icon: <SimulatorIcon /> },
   ];
 
   return (

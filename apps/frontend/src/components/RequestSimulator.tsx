@@ -37,6 +37,10 @@ import {
   CheckCircle as SuccessIcon,
   Error as ErrorIcon,
   AccessTime as PendingIcon,
+  Add as AddIcon,
+  Person as PersonIcon,
+  Key as KeyIcon,
+  ContentCopy as CopyIcon,
 } from '@mui/icons-material';
 
 import { Model, Policy } from '../types';
@@ -47,8 +51,7 @@ interface SimulationRequest {
   queryText: string;
   count: number;
   maxTokens: number;
-  authPrefix: 'Bearer' | 'APIKEY';
-  selectedToken: string; // Token name/id to use for requests
+  selectedToken: string; // JWT token to use for requests
 }
 
 interface SimulationResult {
@@ -56,7 +59,6 @@ interface SimulationResult {
   timestamp: string;
   request: {
     model: string;
-    tier: string;
     messages: Array<{ role: string; content: string }>;
     maxTokens: number;
     headers: Record<string, string>;
@@ -80,13 +82,12 @@ const RequestSimulator: React.FC = () => {
     queryText: 'Hello, can you help me with a coding question?',
     count: 1,
     maxTokens: 100,
-    authPrefix: 'APIKEY', // Default to APIKEY as per your cluster config
-    selectedToken: '', // Will be auto-selected when tokens load
+    selectedToken: '', // JWT token will be pasted here
   });
 
   // Data state
   const [models, setModels] = useState<Model[]>([]);
-  const [userTokens, setUserTokens] = useState<any[]>([]);
+  const [userInfo, setUserInfo] = useState<any>(null);
   
   // UI state
   const [loading, setLoading] = useState(true);
@@ -95,6 +96,14 @@ const RequestSimulator: React.FC = () => {
   const [expandedResults, setExpandedResults] = useState<Set<string>>(new Set());
   const [currentRequest, setCurrentRequest] = useState(0);
   const [error, setError] = useState<string | null>(null);
+  
+  // Token creation state
+  const [showTokenCreate, setShowTokenCreate] = useState(false);
+  const [selectedTTL, setSelectedTTL] = useState('default'); // 'default', '1h', '4h', '24h', 'custom'
+  const [customTTL, setCustomTTL] = useState('');
+  const [createdToken, setCreatedToken] = useState<string | null>(null);
+  const [createdTokenInfo, setCreatedTokenInfo] = useState<{token: string, ttl: string, expires_at: string} | null>(null);
+  const [tokenCreating, setTokenCreating] = useState(false);
 
   // Load initial data
   useEffect(() => {
@@ -106,11 +115,10 @@ const RequestSimulator: React.FC = () => {
       setLoading(true);
       setError(null);
 
-      // Load models, policies, and user tokens in parallel
-      const [modelsData, policiesData, tokensData] = await Promise.all([
+      // Load models and user info in parallel
+      const [modelsData, userInfoData] = await Promise.all([
         apiService.getModels().catch(() => []),
-        apiService.getPolicies().catch(() => []),
-        apiService.getUserTokens().catch(() => []),
+        apiService.getUserInfo().catch(() => null),
       ]);
 
       // Transform models data to match expected structure
@@ -124,24 +132,10 @@ const RequestSimulator: React.FC = () => {
       console.log('Loaded models:', transformedModels);
       setModels(transformedModels);
       
-      const tokens = Array.isArray(tokensData) ? tokensData : tokensData?.data || [];
-      console.log('Loaded user tokens:', tokens.length, 'tokens');
-      if (tokens.length > 0) {
-        console.log('First token structure:', Object.keys(tokens[0]));
-        console.log('First token data:', tokens[0]);
-      }
-      setUserTokens(tokens);
-
-      // No need to extract tiers - they come from the selected token's policy
-      
-      // Auto-select token based on user's first token if available
-      if (tokens.length > 0 && !simulationForm.selectedToken) {
-        const firstToken = tokens[0];
-        setSimulationForm(prev => ({ 
-          ...prev, 
-          selectedToken: firstToken.name || firstToken.id
-        }));
-        console.log('🎯 Auto-selected token:', firstToken.displayName || firstToken.name, 'with policy:', firstToken.policy);
+      // Set user info
+      if (userInfoData) {
+        console.log('Loaded user info:', userInfoData);
+        setUserInfo(userInfoData);
       }
     } catch (err) {
       console.error('Failed to load initial data:', err);
@@ -151,8 +145,6 @@ const RequestSimulator: React.FC = () => {
         { id: 'vllm-simulator', name: 'vLLM Simulator', provider: 'KServe', description: 'Test model' },
         { id: 'qwen3-0.6b-instruct', name: 'Qwen3 0.6B Instruct', provider: 'KServe', description: 'Qwen3 model' }
       ]);
-      // Fallback data set
-      setUserTokens([]);
     } finally {
       setLoading(false);
     }
@@ -165,45 +157,22 @@ const RequestSimulator: React.FC = () => {
     }));
   };
 
-  // Get tier from selected token
+  // Get tier from user info (since tokens are stateless)
   const getSelectedTokenTier = () => {
-    if (simulationForm.selectedToken && userTokens.length > 0) {
-      const selectedToken = userTokens.find(token => 
-        (token.name === simulationForm.selectedToken) || 
-        (token.id === simulationForm.selectedToken)
-      );
-      return selectedToken?.policy || 'unknown';
-    }
-    return 'unknown';
+    // For stateless tokens, use the user's tier from user info
+    return userInfo?.tier || 'free';
   };
 
   const getApiKey = () => {
-    // Use the selected token if available
-    if (simulationForm.selectedToken && userTokens.length > 0) {
-      const selectedToken = userTokens.find(token => 
-        (token.name === simulationForm.selectedToken) || 
-        (token.id === simulationForm.selectedToken)
-      );
-      
-      if (selectedToken) {
-        const apiKey = selectedToken.actualApiKey || selectedToken.token || selectedToken.key || selectedToken.api_key || selectedToken.value;
-        console.log('🔑 Using selected token:', selectedToken.displayName || selectedToken.name, `${apiKey?.substring(0, 8)}...`);
-        return apiKey;
-      }
+    // Use the token directly from the text field
+    if (simulationForm.selectedToken?.trim()) {
+      console.log('🔑 Using provided token:', `${simulationForm.selectedToken.substring(0, 20)}...`);
+      return simulationForm.selectedToken.trim();
     }
     
-    // Fallback to first available token
-    if (userTokens.length > 0) {
-      const token = userTokens[0];
-      const apiKey = token.actualApiKey || token.token || token.key || token.api_key || token.value;
-      console.log('🔑 Using first available token:', token.displayName || token.name, `${apiKey?.substring(0, 8)}...`);
-      return apiKey;
-    }
-    
-    // Final fallback to test key
-    const fallbackKey = 'freeuser1_key';
-    console.log('🔑 Using fallback API key:', fallbackKey);
-    return fallbackKey;
+    // No fallback since we require manual token input
+    console.log('🔑 No token provided');
+    return '';
   };
 
   const runSingleRequest = async (requestIndex: number): Promise<SimulationResult> => {
@@ -217,21 +186,21 @@ const RequestSimulator: React.FC = () => {
         { role: 'user', content: simulationForm.queryText }
       ],
       max_tokens: simulationForm.maxTokens,
-      tier: selectedTokenTier,
       apiKey: getApiKey(),
-      authPrefix: simulationForm.authPrefix,
     };
 
-    // Kuadrant supports both APIKEY and Bearer prefixes
-    // Use the selected prefix from the form
+    // Service Account tokens use Bearer authentication
     const requestHeaders = {
       'Content-Type': 'application/json',
-      'Authorization': `${simulationForm.authPrefix} ${requestData.apiKey}`,
+      'Authorization': `Bearer ${requestData.apiKey}`,
     };
 
     try {
       console.log(`🚀 Running simulation request ${requestIndex + 1}:`, requestData);
-      console.log(`🔐 Authorization header: ${simulationForm.authPrefix} ${requestData.apiKey.substring(0, 8)}...`);
+      const maskedToken = requestData.apiKey.length > 8 ? 
+        `${requestData.apiKey.substring(0, 4)}...${requestData.apiKey.substring(requestData.apiKey.length - 4)}` : 
+        requestData.apiKey;
+      console.log(`🔐 Authorization header: Bearer ${maskedToken}`);
       
       const response = await apiService.simulateRequest(requestData);
       const duration = Date.now() - startTime;
@@ -241,7 +210,6 @@ const RequestSimulator: React.FC = () => {
         timestamp: new Date().toISOString(),
         request: {
           model: requestData.model,
-          tier: requestData.tier,
           messages: requestData.messages,
           maxTokens: requestData.max_tokens,
           headers: requestHeaders,
@@ -249,8 +217,7 @@ const RequestSimulator: React.FC = () => {
             model: requestData.model,
             messages: requestData.messages,
             max_tokens: requestData.max_tokens,
-            tier: requestData.tier,
-          },
+            },
         },
         response: {
           status: 200,
@@ -270,7 +237,6 @@ const RequestSimulator: React.FC = () => {
         timestamp: new Date().toISOString(),
         request: {
           model: requestData.model,
-          tier: requestData.tier,
           messages: requestData.messages,
           maxTokens: requestData.max_tokens,
           headers: requestHeaders,
@@ -278,8 +244,7 @@ const RequestSimulator: React.FC = () => {
             model: requestData.model,
             messages: requestData.messages,
             max_tokens: requestData.max_tokens,
-            tier: requestData.tier,
-          },
+            },
         },
         response: {
           status: err.response?.status || 500,
@@ -295,23 +260,19 @@ const RequestSimulator: React.FC = () => {
   };
 
   const handleRunSimulation = async () => {
-    if (!simulationForm.model || !simulationForm.queryText || !simulationForm.selectedToken) {
+    if (!simulationForm.model || !simulationForm.queryText || !simulationForm.selectedToken?.trim()) {
       setError('Please fill in all required fields (Model, Token, and Query Text)');
       return;
     }
     
-    // Validate that the selected token exists
-    const selectedToken = userTokens.find(t => t.name === simulationForm.selectedToken || t.id === simulationForm.selectedToken);
-    if (!selectedToken) {
-      setError('Selected token not found. Please choose a valid token.');
+    // Validate token format (basic JWT validation)
+    const token = simulationForm.selectedToken.trim();
+    if (!token.includes('.') || token.split('.').length !== 3) {
+      setError('Invalid token format. Please paste a valid JWT Service Account token.');
       return;
     }
 
     const tokenTier = getSelectedTokenTier();
-    if (tokenTier === 'unknown') {
-      setError('Selected token does not have a valid policy/tier.');
-      return;
-    }
 
     setIsRunning(true);
     setResults([]);
@@ -361,6 +322,21 @@ const RequestSimulator: React.FC = () => {
     return JSON.stringify(obj, null, 2);
   };
 
+  const formatJsonWithMaskedAuth = (obj: any) => {
+    if (obj && obj.Authorization) {
+      const maskedObj = { ...obj };
+      const authValue = maskedObj.Authorization;
+      if (typeof authValue === 'string' && authValue.startsWith('Bearer ')) {
+        const token = authValue.substring(7); // Remove "Bearer " prefix
+        if (token.length > 8) {
+          maskedObj.Authorization = `Bearer ${token.substring(0, 4)}...${token.substring(token.length - 4)}`;
+        }
+      }
+      return JSON.stringify(maskedObj, null, 2);
+    }
+    return JSON.stringify(obj, null, 2);
+  };
+
   const getResultIcon = (result: SimulationResult) => {
     if (result.success) {
       return <SuccessIcon color="success" />;
@@ -371,6 +347,79 @@ const RequestSimulator: React.FC = () => {
 
   const getResultColor = (result: SimulationResult) => {
     return result.success ? 'success' : 'error';
+  };
+
+  // Token creation functionality
+  const handleCreateToken = async () => {
+    try {
+      setTokenCreating(true);
+      setError(null);
+      
+      // Determine TTL to send
+      let ttlToSend: string | undefined;
+      if (selectedTTL === 'default') {
+        ttlToSend = undefined; // Let MaaS API use default
+      } else if (selectedTTL === 'custom') {
+        ttlToSend = customTTL.trim();
+        if (!ttlToSend) {
+          setError('Custom TTL is required when custom option is selected');
+          setTokenCreating(false);
+          return;
+        }
+      } else {
+        ttlToSend = selectedTTL;
+      }
+      
+      const response = await apiService.createToken({
+        ttl: ttlToSend,
+      });
+      
+      console.log('Token creation response:', response);
+      
+      // Extract the token and metadata from the response
+      // API service unwraps { success: true, data: {...} } responses automatically
+      const apiKey = response?.token;
+      
+      if (apiKey) {
+        setCreatedToken(apiKey);
+        setCreatedTokenInfo({
+          token: apiKey,
+          ttl: response?.ttl || 'Unknown',
+          expires_at: response?.expires_at || 'Unknown'
+        });
+        
+        
+        // Auto-paste the new token into the textbox
+        setSimulationForm(prev => ({ 
+          ...prev, 
+          selectedToken: apiKey
+        }));
+        
+        console.log('🎯 Auto-pasted new token into textbox');
+      } else {
+        console.warn('No API key found in response:', response);
+        setError('Token created but API key not returned');
+      }
+      setSelectedTTL('default');
+      setCustomTTL('');
+      setShowTokenCreate(false);
+    } catch (error: any) {
+      console.error('Token creation failed:', error);
+      if (error.status === 503) {
+        setError('MaaS API service is currently unavailable. Cannot create tokens at this time.');
+      } else if (error.message?.includes('service is unavailable')) {
+        setError('MaaS API service is currently unavailable. Cannot create tokens at this time.');
+      } else {
+        setError(error.message || 'Failed to create token');
+      }
+    } finally {
+      setTokenCreating(false);
+    }
+  };
+
+  const copyToClipboard = (text: string) => {
+    navigator.clipboard.writeText(text);
+    // Could add a snackbar notification here
   };
 
   if (loading) {
@@ -389,40 +438,171 @@ const RequestSimulator: React.FC = () => {
 
   return (
     <Box>
+      {/* User Info Header */}
+      {userInfo && (
+        <Card sx={{ mb: 3, bgcolor: 'primary.50', border: '1px solid', borderColor: 'primary.200' }}>
+          <CardContent>
+            <Box display="flex" alignItems="center" justifyContent="space-between">
+              <Box display="flex" alignItems="center" gap={2}>
+                <PersonIcon color="primary" />
+                <Box>
+                  <Typography variant="h6" color="primary.main">
+                    {userInfo.name}
+                  </Typography>
+                  <Typography variant="body2" color="text.secondary">
+                    {userInfo.email} • {userInfo.tier} tier • {userInfo.cluster}
+                  </Typography>
+                </Box>
+              </Box>
+              <Box display="flex" gap={1}>
+                <Chip 
+                  label={`${userInfo.tier} tier`}
+                  color="primary"
+                  variant="outlined"
+                />
+                <Chip 
+                  label={`${userInfo.groups?.length || 0} groups`}
+                  color="secondary"
+                  variant="outlined"
+                  size="small"
+                />
+              </Box>
+            </Box>
+          </CardContent>
+        </Card>
+      )}
+
       {/* Header */}
       <Typography variant="h4" component="h1" gutterBottom>
-        Request Simulator
+        Playground
       </Typography>
       
       <Typography variant="body1" color="text.secondary" sx={{ mb: 2 }}>
-        Test your Kuadrant policies by sending real requests to your models. 
-        Available tiers are extracted from your active policies.
+        Create tokens and test your Kuadrant policies by sending real requests to your models. 
+        Models and user info are retrieved from the MaaS API.
       </Typography>
       
       <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-        <strong>Authentication:</strong> Uses real API keys from your cluster. 
-        Kuadrant supports both "APIKEY" and "Bearer" authorization prefixes.
-        {simulationForm.selectedToken && userTokens.length > 0 ? (() => {
-          const selectedToken = userTokens.find(t => t.name === simulationForm.selectedToken || t.id === simulationForm.selectedToken);
-          return selectedToken ? 
-            ` Using token: ${selectedToken.displayName || selectedToken.name} (${selectedToken.policy} policy)` : 
-            ' Token not found';
-        })() : userTokens.length > 0 ? 
-          ` ${userTokens.length} tokens available - select one above` : 
-          ' Using fallback test key.'
+        <strong>Authentication:</strong> Uses ephemeral Service Account JWT tokens (4-hour TTL) with Bearer authentication.
+        {simulationForm.selectedToken?.trim() ? 
+          ` Using provided token (${simulationForm.selectedToken.substring(0, 20)}...)` : 
+          ' Paste JWT token below to authenticate requests.'
         }
       </Typography>
 
       <Typography variant="body2" color="text.secondary" sx={{ mb: 4 }}>
-        <strong>Tier & Model Access:</strong> Each token has its own policy that determines model access and rate limits.
-        {userTokens.length > 1 && (
-          <><br/><strong>Available Tokens:</strong> You have {userTokens.length} active tokens with different policies.</>
-        )}
+        <strong>Tier & Model Access:</strong> Your tier ({userInfo?.tier || 'free'}) determines model access and rate limits.
+        Service Account tokens are stateless and don't store policy information - tier is inherited from your OpenShift groups.
       </Typography>
 
       {error && (
         <Alert severity="error" sx={{ mb: 3 }} onClose={() => setError(null)}>
           {error}
+        </Alert>
+      )}
+
+      {/* Token Creation Section */}
+      <Card sx={{ mb: 4 }}>
+        <CardContent>
+          <Typography variant="h6" gutterBottom sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+            <KeyIcon />
+            API Token Management
+          </Typography>
+          
+          <Box display="flex" gap={2} alignItems="end" sx={{ mb: 2 }}>
+            <FormControl size="small" sx={{ minWidth: 150 }}>
+              <InputLabel>Token TTL</InputLabel>
+              <Select
+                value={selectedTTL}
+                onChange={(e) => setSelectedTTL(e.target.value)}
+                label="Token TTL"
+                disabled={tokenCreating}
+              >
+                <MenuItem value="default">Default (4h)</MenuItem>
+                <MenuItem value="1h">1 hour</MenuItem>
+                <MenuItem value="4h">4 hours</MenuItem>
+                <MenuItem value="24h">24 hours</MenuItem>
+                <MenuItem value="custom">Custom</MenuItem>
+              </Select>
+            </FormControl>
+            
+            {selectedTTL === 'custom' && (
+              <TextField
+                label="Custom TTL"
+                value={customTTL}
+                onChange={(e) => setCustomTTL(e.target.value)}
+                placeholder="e.g., 2h, 30m, 3d"
+                disabled={tokenCreating}
+                size="small"
+                sx={{ minWidth: 120 }}
+                helperText="Format: 1h, 30m, 2d"
+              />
+            )}
+            
+            <Button
+              variant="contained"
+              onClick={handleCreateToken}
+              disabled={tokenCreating || (selectedTTL === 'custom' && !customTTL.trim())}
+              startIcon={tokenCreating ? <CircularProgress size={16} /> : <AddIcon />}
+            >
+              {tokenCreating ? 'Creating...' : 'Create Token'}
+            </Button>
+          </Box>
+          
+        </CardContent>
+      </Card>
+
+      {/* Token Display Dialog */}
+      {createdToken && (
+        <Alert 
+          severity="success" 
+          sx={{ mb: 3 }}
+          action={
+            <Box>
+              <Button 
+                color="inherit" 
+                size="small" 
+                onClick={() => copyToClipboard(createdToken)}
+                startIcon={<CopyIcon />}
+              >
+                Copy
+              </Button>
+              <Button 
+                color="inherit" 
+                size="small" 
+                onClick={() => {
+                  setCreatedToken(null);
+                  setCreatedTokenInfo(null);
+                }}
+              >
+                Close
+              </Button>
+            </Box>
+          }
+        >
+          <strong>Token Created Successfully!</strong>
+          {createdTokenInfo && (
+            <Box sx={{ mt: 1, mb: 1 }}>
+              <Typography variant="body2" color="success.dark">
+                <strong>TTL:</strong> {createdTokenInfo.ttl} • <strong>Expires:</strong> {new Date(createdTokenInfo.expires_at).toLocaleString()}
+              </Typography>
+            </Box>
+          )}
+          <Box 
+            component="code" 
+            sx={{ 
+              display: 'block', 
+              mt: 1, 
+              p: 1, 
+              bgcolor: 'success.light', 
+              borderRadius: 1,
+              fontFamily: 'monospace',
+              fontSize: '0.875rem',
+              wordBreak: 'break-all'
+            }}
+          >
+            {createdToken}
+          </Box>
         </Alert>
       )}
 
@@ -462,19 +642,6 @@ const RequestSimulator: React.FC = () => {
             </Grid>
 
 
-            {/* Show selected token's policy */}
-            {simulationForm.selectedToken && (
-              <Grid item xs={12} sm={6} md={3}>
-                <Box sx={{ p: 2, bgcolor: 'info.50', borderRadius: 1, border: '1px solid', borderColor: 'info.200' }}>
-                  <Typography variant="body2" color="info.main" sx={{ fontWeight: 600 }}>
-                    Using Policy: {getSelectedTokenTier()}
-                  </Typography>
-                  <Typography variant="caption" color="text.secondary">
-                    Inherited from selected token
-                  </Typography>
-                </Box>
-              </Grid>
-            )}
 
             <Grid item xs={12} sm={6} md={2}>
               <TextField
@@ -500,56 +667,23 @@ const RequestSimulator: React.FC = () => {
               />
             </Grid>
 
-            <Grid item xs={12} sm={6} md={3}>
-              <FormControl fullWidth>
-                <InputLabel>API Token *</InputLabel>
-                <Select
-                  value={simulationForm.selectedToken}
-                  onChange={(e) => {
-                    const tokenName = e.target.value;
-                    const selectedToken = userTokens.find(t => t.name === tokenName || t.id === tokenName);
-                    console.log('Token selected:', tokenName, 'with policy:', selectedToken?.policy);
-                    handleInputChange('selectedToken', tokenName);
-                  }}
-                  label="API Token *"
-                  disabled={isRunning || loading}
-                >
-                  {userTokens.length === 0 ? (
-                    <MenuItem disabled>
-                      {loading ? 'Loading tokens...' : 'No tokens available'}
-                    </MenuItem>
-                  ) : (
-                    userTokens.map(token => (
-                      <MenuItem key={token.name || token.id} value={token.name || token.id}>
-                        <Box>
-                          <Typography variant="body2">
-                            {token.displayName || token.alias || token.name}
-                          </Typography>
-                          <Typography variant="caption" color="text.secondary">
-                            Policy: {token.policy} • Team: {token.team_name || 'Unknown'} • Created: {new Date(token.created).toLocaleDateString()}
-                          </Typography>
-                        </Box>
-                      </MenuItem>
-                    ))
-                  )}
-                </Select>
-              </FormControl>
+            <Grid item xs={12} sm={6} md={4}>
+              <TextField
+                fullWidth
+                label="API Token *"
+                value={simulationForm.selectedToken}
+                onChange={(e) => {
+                  console.log('Token entered:', e.target.value.substring(0, 10) + '...');
+                  handleInputChange('selectedToken', e.target.value);
+                }}
+                placeholder="Paste your Service Account token here..."
+                disabled={isRunning || loading}
+                multiline
+                rows={2}
+                helperText="Paste the JWT token from the creation dialog above"
+              />
             </Grid>
 
-            <Grid item xs={12} sm={6} md={2}>
-              <FormControl fullWidth>
-                <InputLabel>Auth Prefix</InputLabel>
-                <Select
-                  value={simulationForm.authPrefix}
-                  onChange={(e) => handleInputChange('authPrefix', e.target.value)}
-                  label="Auth Prefix"
-                  disabled={isRunning || loading}
-                >
-                  <MenuItem value="APIKEY">APIKEY</MenuItem>
-                  <MenuItem value="Bearer">Bearer</MenuItem>
-                </Select>
-              </FormControl>
-            </Grid>
 
             <Grid item xs={12} md={2}>
               <Button
@@ -612,7 +746,7 @@ const RequestSimulator: React.FC = () => {
                     <Box display="flex" alignItems="center" width="100%">
                       {getResultIcon(result)}
                       <Typography sx={{ ml: 2, flexGrow: 1 }}>
-                        Request to {result.request.model} (policy: {result.request.tier})
+                        Request to {result.request.model}
                       </Typography>
                       <Chip
                         label={result.success ? `${result.response.status} ${result.response.statusText}` : 'Failed'}
@@ -639,7 +773,7 @@ const RequestSimulator: React.FC = () => {
                         </Typography>
                         <Paper sx={{ p: 2, mb: 2, bgcolor: 'grey.50' }}>
                           <pre style={{ margin: 0, fontSize: '0.875rem', whiteSpace: 'pre-wrap' }}>
-                            {formatJson(result.request.headers)}
+                            {formatJsonWithMaskedAuth(result.request.headers)}
                           </pre>
                         </Paper>
 

@@ -98,7 +98,9 @@ func (g *Handler) IssueToken(c *gin.Context) {
 	token := g.manager.GenerateSAToken(c.Request.Context(), user, duration)
 
 	response := Response{
-		Token: token,
+		Token:     token,
+		TTL:       req.TTL,
+		ExpiresAt: time.Now().Add(duration).Format(time.RFC3339),
 	}
 
 	c.JSON(http.StatusCreated, response)
