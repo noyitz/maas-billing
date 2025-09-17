@@ -166,6 +166,51 @@ router.post('/create', async (req, res) => {
   }
 });
 
-
+// Delete all tokens for current user
+router.delete('/delete', async (req, res) => {
+  if (USE_LOCAL_MAAS_API) {
+    try {
+      logger.info('Deleting all tokens via MaaS API');
+      
+      // Call MaaS API to delete all tokens
+      await makeMaasApiRequest('/v1/tokens', {
+        method: 'DELETE'
+      });
+      
+      logger.info('Tokens deleted successfully via MaaS API');
+      res.json({
+        success: true,
+        message: 'All tokens revoked successfully',
+        timestamp: new Date().toISOString()
+      });
+    } catch (error: any) {
+      logger.error('Failed to delete tokens via MaaS API:', error);
+      
+      if (error.response?.status === 401) {
+        res.status(401).json({
+          success: false,
+          error: 'Authentication failed',
+          details: 'Unable to authenticate with MaaS API',
+          timestamp: new Date().toISOString()
+        });
+      } else {
+        res.status(503).json({
+          success: false,
+          error: 'MaaS API service is unavailable',
+          details: error.message || 'Unable to connect to MaaS API service',
+          timestamp: new Date().toISOString()
+        });
+      }
+    }
+  } else {
+    // Legacy key manager implementation (not implemented)
+    res.status(501).json({
+      success: false,
+      error: 'Token deletion not supported',
+      details: 'Token deletion is only available with MaaS API (USE_LOCAL_MAAS_API=true)',
+      timestamp: new Date().toISOString()
+    });
+  }
+});
 
 export default router;

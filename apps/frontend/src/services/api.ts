@@ -153,6 +153,12 @@ class ApiService {
     });
   }
 
+  async deleteTokens() {
+    return this.fetch('/tokens/delete', {
+      method: 'DELETE',
+    });
+  }
+
 
   // OAuth APIs
   async exchangeOAuthCode(code: string, redirectUri?: string) {

@@ -41,6 +41,7 @@ import {
   Person as PersonIcon,
   Key as KeyIcon,
   ContentCopy as CopyIcon,
+  Delete as DeleteIcon,
 } from '@mui/icons-material';
 
 import { Model, Policy } from '../types';
@@ -104,6 +105,7 @@ const RequestSimulator: React.FC = () => {
   const [createdToken, setCreatedToken] = useState<string | null>(null);
   const [createdTokenInfo, setCreatedTokenInfo] = useState<{token: string, ttl: string, expires_at: string} | null>(null);
   const [tokenCreating, setTokenCreating] = useState(false);
+  const [tokenDeleting, setTokenDeleting] = useState(false);
 
   // Load initial data
   useEffect(() => {
@@ -422,6 +424,48 @@ const RequestSimulator: React.FC = () => {
     // Could add a snackbar notification here
   };
 
+  // Delete all tokens functionality
+  const handleDeleteTokens = async () => {
+    try {
+      setTokenDeleting(true);
+      setError(null);
+      
+      console.log('🗑️ Deleting all tokens...');
+      
+      const response = await apiService.deleteTokens();
+      
+      console.log('Token deletion response:', response);
+      
+      // Clear the current token from the text field since they've been deleted
+      setSimulationForm(prev => ({ 
+        ...prev, 
+        selectedToken: ''
+      }));
+      
+      // Clear any previously created token display
+      setCreatedToken(null);
+      setCreatedTokenInfo(null);
+      
+      console.log('🎯 All tokens deleted successfully');
+      
+      // Could add success notification here
+      
+    } catch (error: any) {
+      console.error('Token deletion failed:', error);
+      if (error.status === 503) {
+        setError('MaaS API service is currently unavailable. Cannot delete tokens at this time.');
+      } else if (error.message?.includes('service is unavailable')) {
+        setError('MaaS API service is currently unavailable. Cannot delete tokens at this time.');
+      } else if (error.status === 401) {
+        setError('Authentication failed. Unable to delete tokens.');
+      } else {
+        setError(error.message || 'Failed to delete tokens');
+      }
+    } finally {
+      setTokenDeleting(false);
+    }
+  };
+
   if (loading) {
     return (
       <Box display="flex" flexDirection="column" alignItems="center" justifyContent="center" minHeight="400px">
@@ -454,7 +498,7 @@ const RequestSimulator: React.FC = () => {
                   </Typography>
                 </Box>
               </Box>
-              <Box display="flex" gap={1}>
+              <Box display="flex" gap={1} alignItems="center">
                 <Chip 
                   label={`${userInfo.tier} tier`}
                   color="primary"
@@ -466,6 +510,17 @@ const RequestSimulator: React.FC = () => {
                   variant="outlined"
                   size="small"
                 />
+                <Button
+                  variant="outlined"
+                  color="error"
+                  size="small"
+                  onClick={handleDeleteTokens}
+                  disabled={tokenDeleting}
+                  startIcon={tokenDeleting ? <CircularProgress size={16} /> : <DeleteIcon />}
+                  sx={{ ml: 1 }}
+                >
+                  {tokenDeleting ? 'Deleting...' : 'Delete All Tokens'}
+                </Button>
               </Box>
             </Box>
           </CardContent>
