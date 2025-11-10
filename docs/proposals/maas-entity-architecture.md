@@ -1,90 +1,72 @@
-# MaaS Entity Architecture
-## Core Entities and Relationships
+# MaaS Entity Architecture - Hierarchical Model
+## Flexible Identity and Commercial Separation
 
 **Author:** Noy Itzikowitz - with some help from Claude Code :)  
 **Status:** Draft  
 **Created:** 2024-10-27  
-**Updated:** 2024-10-27  
+**Updated:** 2024-11-10  
 
 ---
 
 ## Overview
 
-This document defines the core entities for the MaaS platform and their relationships. The goal is to establish a unified data model that enables:
+This document defines a new, more robust hierarchical entity model for the MaaS platform. The goal is to establish a flexible, industry-standard data model that enables:
 
-- **Clear Entity Relationships**: Users belong to Groups, Groups have multiple Subscriptions (many-to-many)
-- **Separation of Concerns**: 
-  - **Subscriptions** define commercial limits (rate limits, quotas, billing)
-  - **Policies** define access control (who can access what models)
-- **Usage Tracking**: Direct correlation between usage and billing
-- **Transparent Attribution**: Cost tracking from user action to billing
+- **Flexible Identity Hierarchy**: Support multi-level organizational structures (Organization → Department → Team) using recursive Group entities
+- **Clear Separation of Concerns**: 
+  - **Identity Layer**: Who the user/group is (User, Group)
+  - **Commercial Layer**: What they bought (Subscription)
+  - **Access Layer**: Authentication and limits (APIKey, Quota)
+- **First-Class Entities**: Structured objects instead of JSON blobs for keys and quotas
+- **Recursive Quota Enforcement**: Hierarchical limit checking with pooled budgets
+- **Advanced Enforcement**: Support for both blocking and throttling behaviors
 
 ## Problem Statement
 
 **Current Issues:**
-- Users and groups are not properly structured
-- No clear relationship between policies, subscriptions, and usage
-- Billing and access control are disconnected
-- Cannot track costs by user/group effectively
+- Flat user/group structure cannot represent complex organizations
+- Quotas and limits are buried in JSON blobs, making them hard to manage
+- No clear hierarchy for budget allocation and enforcement
+- Limited enforcement options (only blocking, no throttling)
+- Tight coupling between identity, commercial, and access concerns
 
 **Goals:**
-- Define 6 core entities with clear relationships
-- **Subscription-driven limits**: Rate limits and quotas defined by what you pay for
-- **Policy-driven access**: Who can access which models and features
-- Connect usage events to billing and policy decisions
-- Support multi-tenant enterprise scenarios
+- Define 5 core entities with clear separation of concerns
+- **Hierarchical Identity**: Recursive Group structure supporting any organizational depth
+- **First-Class Quotas**: Structured quota entities with flexible enforcement options
+- **Layered Enforcement**: Quota checks that walk up the organizational hierarchy
+- **Pooled Budgets**: Team/department quotas without individual user limits
+- **Advanced Controls**: Support for throttling (queuing) in addition to blocking
 
 ---
 
-## Key Design Principle: Subscription vs Policy Separation
+## Core Design Principles
 
-**Important**: We separate commercial concerns from access control:
+### 1. Flexible Identity Hierarchy
+The system uses recursive Group entities to model any organizational structure:
+- **Root Organization**: Top-level Group (no parent)
+- **Departments**: Groups with the organization as parent
+- **Teams**: Groups with departments as parent  
+- **Users**: Individuals who belong to one or more Groups
 
-| Concern | Handled By | Examples |
-|---------|------------|----------|
-| **Commercial Limits** | Subscription | Rate limits, quotas, billing rates, cost caps |
-| **Access Control** | Policy | Who can access which models, RBAC rules, permissions |
+### 2. Separation of Identity from Commercials
+Clear boundaries between different concerns:
 
-This separation means:
-- **Subscription entitlements** define what you can consume (based on what you pay)
-- **Policies** define what you're allowed to access (based on permissions)
-- **Both are enforced** together during request evaluation
+| Layer | Purpose | Entities |
+|-------|---------|----------|
+| **Identity** | Who the user/group is | User, Group |
+| **Commercial** | What they bought | Subscription |
+| **Access** | Authentication and limits | APIKey, Quota |
 
-### Model Access: Dual-Check Requirement
-
-**Critical**: For any model request to succeed, it must pass BOTH checks:
-
-1. **Commercial Check**: Model must be included in the group's `subscription.entitlements.model_access`
-2. **Permission Check**: User must be allowed by an active Policy with matching `target_id`
-
-**Example**: Alice wants to use GPT-4
-- ✅ **Commercial**: GPT-4 is in her team's Pro subscription model list
-- ✅ **Permission**: RBAC policy allows ML engineers to access GPT-4  
-- ✅ **Result**: Request succeeds
-
-If either check fails, the request is denied.
-
-### Subscription Selection Logic
-
-When a group has multiple subscriptions, the system uses this logic:
-
-1. **Find all active subscriptions** for the user's group via GroupSubscription
-2. **Filter by model access** - only subscriptions that include the requested model
-3. **Select highest priority** - subscription with the highest priority number
-4. **Apply limits** - check rate limits and quotas from the selected subscription
-
-**Example**: ML Team has three subscriptions:
-- Development (priority: 10, models: ["gpt-3.5"])  
-- Production (priority: 20, models: ["gpt-4", "claude-3"])
-- Research (priority: 30, models: ["gpt-4", "experimental-model"])
-
-For a GPT-4 request: Research (30) wins over Production (20)
+### 3. First-Class Quotas and Keys
+- **APIKey**: Structured entity (not just a string) with metadata and relationships
+- **Quota**: Dedicated entity (not JSON blob) with type, limit, period, and enforcement options
 
 ---
 
 ## Core Entities
 
-We define 8 core entities that work together to enable this separation:
+We define 5 core entities with clear separation of concerns:
 
 ### Entity Relationships
 
@@ -92,19 +74,22 @@ We define 8 core entities that work together to enable this separation:
 erDiagram
     User ||--o{ UserGroupMembership : "belongs to"
     Group ||--o{ UserGroupMembership : "contains"
-    Group ||--o{ GroupSubscription : "has"
-    Subscription ||--o{ GroupSubscription : "shared by"
-    User ||--o{ Policy : "subject"
-    Group ||--o{ Policy : "subject" 
-    Model ||--o{ Policy : "target"
-    User ||--o{ UsageRecord : "generates"
-    Model ||--o{ UsageRecord : "consumed"
+    Group ||--o{ Group : "parent of"
+    Group ||--o{ Subscription : "owns"
+    User ||--o{ APIKey : "has personal"
+    Group ||--o{ APIKey : "has service"
+    User ||--o{ Quota : "personal limits"
+    Group ||--o{ Quota : "team/dept limits"
+    Subscription ||--o{ Quota : "master limits"
+    APIKey ||--o{ Quota : "key limits"
+    APIKey ||--o{ UsageRecord : "generates"
     Subscription ||--o{ UsageRecord : "tracks"
     
     User {
         string id PK
         string email
         string name
+        string department
         json attributes
         timestamp created_at
         bool active
@@ -113,6 +98,7 @@ erDiagram
     Group {
         string id PK
         string name
+        string type
         string description
         string parent_group_id FK
         json attributes
@@ -128,29 +114,9 @@ erDiagram
         bool active
     }
     
-    GroupSubscription {
-        string group_id FK
-        string subscription_id FK
-        int priority
-        timestamp assigned_at
-        bool active
-    }
-    
-    Policy {
-        string id PK
-        string name
-        string type
-        string subject_type
-        string subject_id FK
-        string target_type
-        string target_id FK
-        json rules
-        int priority
-        bool active
-    }
-    
     Subscription {
         string id PK
+        string group_id FK
         string name
         string tier
         json entitlements
@@ -160,51 +126,73 @@ erDiagram
         timestamp end_date
     }
     
-    Model {
+    APIKey {
         string id PK
         string name
-        string version
-        string provider
-        json capabilities
-        json cost_model
+        string owner_type
+        string owner_id FK
+        string key_hash
+        json metadata
+        timestamp created_at
+        timestamp last_used
+        bool active
+    }
+    
+    Quota {
+        string id PK
+        string owner_type
+        string owner_id FK
+        string type
+        decimal limit_value
+        string period
+        string enforcement
+        timestamp created_at
         bool active
     }
     
     UsageRecord {
         string id PK
+        string api_key_id FK
         string user_id FK
-        string model_id FK
+        string group_id FK
         string subscription_id FK
-        string session_id
+        string model_id
         json metrics
         decimal cost_usd
-        timestamp start_time
-        timestamp end_time
+        timestamp created_at
     }
 ```
 
 ## Entity Definitions
 
-### 1. User
-Individual users who access models and generate usage.
+### 1. User (The Human)
+**Role**: The individual human identity that uses the platform.
 
 **Core Fields:**
 - `id`: Unique identifier (UUID)
 - `email`: Primary email address
 - `name`: Display name
+- `department`: User's department (for reporting)
 - `attributes`: Custom user properties (JSON)
 - `active`: Account status
+
+**Key Capabilities:**
+- **Group Membership**: Can belong to one or more Groups
+- **Personal API Keys**: Can have personal authentication keys
+- **Personal Quotas**: Can have individual spending caps or limits
+- **Usage Attribution**: All usage is attributed back to the User
 
 **Example:**
 ```json
 {
-  "id": "usr-123e4567-e89b-12d3-a456-426614174000",
+  "id": "usr-alice-12345",
   "email": "alice@acme.com",
   "name": "Alice Johnson",
+  "department": "ML Engineering",
   "attributes": {
-    "department": "engineering",
-    "role": "ml-engineer",
-    "cost_center": "R&D-ML"
+    "employee_id": "EMP001",
+    "hire_date": "2023-01-15",
+    "manager": "bob@acme.com"
   },
   "active": true,
   "created_at": "2024-01-15T10:00:00Z"
@@ -212,171 +200,115 @@ Individual users who access models and generate usage.
 ```
 
 **Relationships:**
-- Belongs to multiple Groups (via UserGroupMembership)
-- Generates UsageRecords
-- Can be subject of Policies
+- **Belongs to**: Multiple Groups (via UserGroupMembership)
+- **Owns**: Personal APIKeys and personal Quotas
+- **Generates**: All UsageRecords are attributed to a User
 
-### 2. Group
-Organizational units that own subscriptions and enable hierarchical policies.
+### 2. Group (The Core Identity Container)
+**Role**: The primary container for identity and resource allocation. Represents any level of an organization hierarchy through recursive nesting.
 
 **Core Fields:**
 - `id`: Unique identifier (UUID)
 - `name`: Group display name
+- `type`: Group type (organization, department, team, project)
 - `description`: Purpose description
-- `parent_group_id`: Parent group for hierarchy (optional)
+- `parent_group_id`: Parent group for hierarchy (NULL for root organization)
 - `attributes`: Custom group properties (JSON)
 - `active`: Group status
 
-**Example:**
+**Key Capabilities:**
+- **Recursive Nesting**: Groups can contain other Groups, enabling unlimited hierarchy depth
+- **Multi-Level Support**: Can represent Organization → Department → Team → Project
+- **Resource Ownership**: Can own Subscriptions and be assigned Quotas
+- **Service Accounts**: Can have group-level APIKeys for automated systems
+
+**Example Hierarchy:**
 ```json
-{
-  "id": "grp-456e7890-e89b-12d3-a456-426614174111",
-  "name": "ML Engineering Team",
-  "description": "Machine Learning engineers and data scientists",
-  "parent_group_id": "grp-789e1234-e89b-12d3-a456-426614174222",
-  "attributes": {
-    "cost_center": "R&D-ML",
-    "budget_limit": 50000,
-    "manager": "bob@acme.com"
+[
+  {
+    "id": "grp-acme-corp",
+    "name": "Acme Corporation",
+    "type": "organization", 
+    "description": "Root organization",
+    "parent_group_id": null,
+    "attributes": {
+      "industry": "technology",
+      "founded": "2010"
+    },
+    "active": true
   },
-  "active": true,
-  "created_at": "2024-01-10T10:00:00Z"
-}
+  {
+    "id": "grp-eng-dept",
+    "name": "Engineering Department", 
+    "type": "department",
+    "description": "All engineering teams",
+    "parent_group_id": "grp-acme-corp",
+    "attributes": {
+      "cost_center": "ENG-001",
+      "vp": "engineering-vp@acme.com"
+    },
+    "active": true
+  },
+  {
+    "id": "grp-ml-team",
+    "name": "ML Engineering Team",
+    "type": "team",
+    "description": "Machine learning engineers and data scientists", 
+    "parent_group_id": "grp-eng-dept",
+    "attributes": {
+      "cost_center": "ENG-ML",
+      "manager": "ml-manager@acme.com"
+    },
+    "active": true
+  }
+]
 ```
 
 **Relationships:**
-- Contains multiple Users (via UserGroupMembership)
-- Has multiple Subscriptions (via GroupSubscription)
-- Can have parent/child Groups
-- Can be subject of Policies
+- **Contains**: Multiple Users (via UserGroupMembership)
+- **Contains**: Multiple child Groups (via parent_group_id)
+- **Owns**: Subscriptions (commercial agreements)
+- **Assigned**: Quotas (budget allocations)
 
-### 3. UserGroupMembership
-Links users to groups with roles and permissions.
-
-**Core Fields:**
-- `user_id`: User identifier (FK)
-- `group_id`: Group identifier (FK) 
-- `role`: User's role in the group
-- `joined_at`: When user joined
-- `active`: Membership status
-
-**Example:**
-```json
-{
-  "user_id": "usr-123e4567-e89b-12d3-a456-426614174000",
-  "group_id": "grp-456e7890-e89b-12d3-a456-426614174111",
-  "role": "ml-engineer",
-  "joined_at": "2024-01-15T10:00:00Z",
-  "active": true
-}
-```
-
-### 4. GroupSubscription
-Links groups to subscriptions with priority for selection.
-
-**Core Fields:**
-- `group_id`: Group identifier (FK)
-- `subscription_id`: Subscription identifier (FK)
-- `priority`: Selection priority (higher number = higher priority)
-- `assigned_at`: When subscription was assigned
-- `active`: Assignment status
-
-**Example:**
-```json
-{
-  "group_id": "grp-456e7890-e89b-12d3-a456-426614174111",
-  "subscription_id": "sub-enterprise-shared",
-  "priority": 100,
-  "assigned_at": "2024-01-01T00:00:00Z",
-  "active": true
-}
-```
-
-**Selection Logic:** When multiple subscriptions are available for a group, the system selects the highest priority subscription that allows the requested model.
-
-### 5. Policy
-Defines access control rules (NOT rate limits or quotas).
+### 3. Subscription (The Commercial Agreement)
+**Role**: Defines what the customer bought. Separate from identity to allow a single tenant to have multiple commercial agreements.
 
 **Core Fields:**
 - `id`: Unique identifier (UUID)
-- `name`: Human-readable name
-- `type`: Policy type (rbac, abac)
-- `subject_type`: Who it applies to (user, group)
-- `subject_id`: Specific subject ID
-- `target_type`: What it controls (model, resource)
-- `target_id`: Specific target ID (optional)
-- `rules`: Policy logic (JSON)
-- `priority`: Evaluation order (higher = priority)
-- `active`: Policy status
-
-**Example - RBAC Policy:**
-```json
-{
-  "id": "pol-789e1234-e89b-12d3-a456-426614174333",
-  "name": "ML Team GPT-4 Access",
-  "type": "rbac",
-  "subject_type": "group",
-  "subject_id": "grp-456e7890-e89b-12d3-a456-426614174111",
-  "target_type": "model",
-  "target_id": "gpt-4",
-  "rules": {
-    "allow": [
-      {
-        "action": "invoke",
-        "conditions": ["user.role in ['ml-engineer', 'senior-engineer']"]
-      }
-    ]
-  },
-  "priority": 100,
-  "active": true
-}
-```
-
-**Important Notes**:
-- Rate limits and quotas are NOT defined in policies - they come from subscription entitlements
-- Policy permission alone is not enough - the model must also be in the subscription's `model_access` list
-
-**Relationships:**
-- Applies to Users or Groups (subject)
-- Controls access to Models (target)
-
-### 6. Subscription
-Defines entitlements and billing (can be shared by multiple groups).
-
-**Core Fields:**
-- `id`: Unique identifier (UUID)
+- `group_id`: Owner Group (typically the Root Organization)
 - `name`: Subscription name
-- `description`: Subscription description
 - `tier`: Service level (free, pro, enterprise)
-- `entitlements`: Usage limits and access (JSON)
+- `entitlements`: What features/models are included (JSON)
 - `billing_config`: Billing settings (JSON)
 - `status`: Current status (active, suspended, expired)
 - `start_date`: Subscription start
 - `end_date`: Subscription end (optional)
 
+**Key Capabilities:**
+- **Feature Entitlements**: Defines which models/features are available
+- **Master Quota Pool**: Total quota available for this commercial plan
+- **Multiple Per Tenant**: A Group can have multiple subscriptions (e.g., "Prod", "Dev")
+- **Billing Separation**: Each subscription has its own billing configuration
+
 **Example:**
 ```json
 {
-  "id": "sub-abc1234-e89b-12d3-a456-426614174444",
-  "name": "Enterprise Shared Subscription",
-  "description": "Shared subscription for all engineering teams",
-  "tier": "pro",
+  "id": "sub-acme-enterprise",
+  "group_id": "grp-acme-corp",
+  "name": "Enterprise Production Subscription",
+  "tier": "enterprise",
   "entitlements": {
-    "rate_limits": {
-      "requests_per_minute": 100,
-      "tokens_per_hour": 50000
-    },
-    "quotas": {
-      "monthly_requests": 100000,
-      "monthly_tokens": 5000000,
-      "monthly_cost_usd": 2000
-    },
-    "model_access": ["gpt-4", "claude-3", "llama-70b"]
+    "feature_throttling": true,
+    "priority_support": true,
+    "model_access": ["gpt-4", "claude-3", "llama-70b"],
+    "max_concurrent_requests": 500
   },
   "billing_config": {
-    "rate_per_token": 0.0001,
-    "minimum_monthly": 100,
-    "currency": "USD"
+    "rate_per_token": 0.00008,
+    "minimum_monthly_usd": 1000,
+    "overage_rate": 1.2,
+    "currency": "USD",
+    "renewal_period": "monthly"
   },
   "status": "active",
   "start_date": "2024-01-01T00:00:00Z",
@@ -384,159 +316,501 @@ Defines entitlements and billing (can be shared by multiple groups).
 }
 ```
 
-**Important - Model Access**: The `model_access` list defines which models are **commercially available** to this subscription. However, users still need **Policy permission** to actually use these models. Both checks must pass.
-
-**Relationships:**
-- Shared by multiple Groups (via GroupSubscription)
-- Tracks UsageRecords
-
-### 7. Model
-Represents AI models available for use.
-
-**Core Fields:**
-- `id`: Unique identifier
-- `name`: Model name
-- `version`: Model version
-- `provider`: Provider (openai, anthropic, etc.)
-- `capabilities`: Model specifications (JSON)
-- `cost_model`: Pricing information (JSON)
-- `active`: Availability status
-
-**Example:**
+**Master Quota**: Subscriptions typically have a master Quota object that defines the total pool:
 ```json
 {
-  "id": "gpt-4",
-  "name": "GPT-4",
-  "version": "gpt-4-0613",
-  "provider": "openai",
-  "capabilities": {
-    "max_tokens": 8192,
-    "supports_functions": true,
-    "modalities": ["text"]
-  },
-  "cost_model": {
-    "input_token_rate_usd": 0.00003,
-    "output_token_rate_usd": 0.00006,
-    "currency": "USD",
-    "billing_unit": "token"
-  },
-  "active": true
+  "id": "quota-sub-master",
+  "owner_type": "subscription",
+  "owner_id": "sub-acme-enterprise",
+  "type": "cost",
+  "limit_value": 10000.00,
+  "period": "monthly",
+  "enforcement": "block"
 }
 ```
 
 **Relationships:**
-- Used in UsageRecords
-- Controlled by Policies
+- **Owned by**: A Group (typically root organization)
+- **Has**: Master Quota objects defining the total limits
+- **Tracks**: All UsageRecords for billing
 
-### 8. UsageRecord
-Captures individual usage events for billing and tracking.
+### 4. APIKey (The Authentication Token)
+**Role**: First-class entity for authentication and usage attribution. No longer just a string, but a structured object with metadata and relationships.
 
 **Core Fields:**
 - `id`: Unique identifier (UUID)
-- `user_id`: User who made the request (FK)
-- `model_id`: Model that was used (FK)
-- `subscription_id`: Associated subscription (FK)
-- `session_id`: Request session identifier
-- `metrics`: Usage details (JSON)
-- `cost_usd`: Calculated cost in USD
-- `start_time`: Request start time
-- `end_time`: Request completion time
+- `name`: Human-readable name
+- `owner_type`: Type of owner (user, group)
+- `owner_id`: Owner identifier (User ID or Group ID)
+- `key_hash`: Hashed version of the actual key
+- `metadata`: Additional properties (JSON)
+- `created_at`: Creation timestamp
+- `last_used`: Last usage timestamp
+- `active`: Key status
 
-**Example:**
+**Key Capabilities:**
+- **Primary Authentication**: Every request is tied to an APIKey
+- **Usage Attribution**: All usage is tracked back to the specific key
+- **Personal or Service**: Can belong to a User (personal) or Group (service account)
+- **Granular Quotas**: Can have its own rate limits and quotas attached
+
+**Examples:**
 ```json
-{
-  "id": "usage-def5678-e89b-12d3-a456-426614174555",
-  "user_id": "usr-123e4567-e89b-12d3-a456-426614174000",
-  "model_id": "gpt-4",
-  "subscription_id": "sub-abc1234-e89b-12d3-a456-426614174444",
-  "session_id": "sess-xyz9876",
-  "metrics": {
-    "input_tokens": 150,
-    "output_tokens": 300,
-    "processing_time_ms": 2500,
-    "response_status": "success"
+[
+  {
+    "id": "key-alice-personal",
+    "name": "Alice's Personal Key",
+    "owner_type": "user",
+    "owner_id": "usr-alice-12345",
+    "key_hash": "sha256:abc123...",
+    "metadata": {
+      "purpose": "personal-development",
+      "client_app": "cli-tool"
+    },
+    "created_at": "2024-01-15T10:00:00Z",
+    "last_used": "2024-01-20T14:30:00Z",
+    "active": true
   },
-  "cost_usd": 0.045,
-  "start_time": "2024-01-15T14:30:00Z",
-  "end_time": "2024-01-15T14:30:02.5Z"
-}
+  {
+    "id": "key-ml-service",
+    "name": "ML Team Service Account",
+    "owner_type": "group", 
+    "owner_id": "grp-ml-team",
+    "key_hash": "sha256:def456...",
+    "metadata": {
+      "purpose": "production-service",
+      "service_name": "recommendation-engine"
+    },
+    "created_at": "2024-01-10T10:00:00Z",
+    "last_used": "2024-01-20T14:29:45Z", 
+    "active": true
+  }
+]
 ```
 
 **Relationships:**
-- Generated by Users
-- Consumes Models  
-- Tracked by Subscriptions
+- **Owned by**: Either a User (personal key) or Group (service account)
+- **Can have**: Associated Quota objects for rate limiting
+- **Generates**: All UsageRecords are tied to an APIKey
+
+### 5. Quota (The Limit Rule)
+**Role**: Structured entity defining a single limit. No more JSON blobs - quotas are now first-class, queryable objects.
+
+**Core Fields:**
+- `id`: Unique identifier (UUID)
+- `owner_type`: What owns this quota (user, group, subscription, api_key)
+- `owner_id`: Owner identifier
+- `type`: Quota type (cost, tokens, requests)
+- `limit_value`: The actual limit (decimal for flexibility)
+- `period`: Time period (monthly, daily, hourly, per_minute)
+- `enforcement`: How to handle violations (block, throttle, alert)
+- `created_at`: Creation timestamp
+- `active`: Quota status
+
+**Key Capabilities:**
+- **Flexible Attachment**: Can be attached to any entity (User, Group, Subscription, APIKey)
+- **Multiple Types**: Support for cost, token, request, and custom quota types
+- **Advanced Enforcement**: Beyond simple blocking - supports throttling and alerting
+- **Hierarchical Checking**: System walks up the hierarchy checking quotas at each level
+
+**Examples:**
+```json
+[
+  {
+    "id": "quota-alice-daily-cap",
+    "owner_type": "user",
+    "owner_id": "usr-alice-12345", 
+    "type": "cost",
+    "limit_value": 50.00,
+    "period": "daily",
+    "enforcement": "block",
+    "active": true
+  },
+  {
+    "id": "quota-ml-team-monthly",
+    "owner_type": "group",
+    "owner_id": "grp-ml-team",
+    "type": "cost", 
+    "limit_value": 5000.00,
+    "period": "monthly",
+    "enforcement": "throttle",
+    "active": true
+  },
+  {
+    "id": "quota-service-key-rate",
+    "owner_type": "api_key",
+    "owner_id": "key-ml-service",
+    "type": "requests",
+    "limit_value": 100,
+    "period": "per_minute", 
+    "enforcement": "block",
+    "active": true
+  }
+]
+```
+
+**Enforcement Types:**
+- **block**: Standard rate limiting - reject request with 429 error
+- **throttle**: Queue request and process when capacity available (premium feature)
+- **alert**: Allow request but send notification (monitoring only)
+
+**Relationships:**
+- **Owned by**: User, Group, Subscription, or APIKey
+- **Enforced on**: All requests during hierarchical quota checking
 
 ---
 
-## Example Scenario
+## Key Scenarios
 
-Let's see how these entities work together in a practical example:
+This section explains how the hierarchical model supports the most important use cases in practice.
 
-### Scenario: ML Team Uses GPT-4
+### Scenario A: The Recursive Layered Quota Check
+
+When a request comes in with an APIKey, the system performs hierarchical quota checking by walking up the Group tree. This ensures budgets are enforced at every organizational level.
 
 **Setup:**
-1. **User**: Alice (ML Engineer)
-2. **Group**: "ML Engineering Team"  
-3. **Multiple Subscriptions**: 
-   - Development (priority: 10, models: ["gpt-3.5"])
-   - Production (priority: 20, models: ["gpt-4", "claude-3"])
-4. **Policy**: RBAC policy allowing ML engineers to use GPT-4
-5. **Model**: GPT-4 model
-6. **UsageRecord**: Generated when Alice uses GPT-4
+- **Organization**: Acme Corp ($10,000/month master limit)
+- **Department**: Engineering Dept ($5,000/month allocation)  
+- **Team**: ML Team ($1,000/month budget)
+- **User**: Alice (personal $50/day cap)
+- **APIKey**: Alice's personal key (100 requests/minute rate limit)
 
-**Flow:**
+**Hierarchical Check Flow:**
+```mermaid
+sequenceDiagram
+    participant Request
+    participant QuotaEngine
+    participant APIKey
+    participant User
+    participant MLTeam
+    participant EngDept 
+    participant AcmeCorp
+    participant Model
+    
+    Request->>QuotaEngine: GPT-4 request with Alice's key
+    
+    QuotaEngine->>APIKey: Check key quota (100 req/min)
+    APIKey-->>QuotaEngine: ✅ PASS (current: 95/min)
+    
+    QuotaEngine->>User: Check Alice's personal quota ($50/day)
+    User-->>QuotaEngine: ✅ PASS (current: $35/day)
+    
+    QuotaEngine->>MLTeam: Check ML Team quota ($1,000/month)
+    MLTeam-->>QuotaEngine: ✅ PASS (current: $850/month)
+    
+    QuotaEngine->>EngDept: Check Engineering quota ($5,000/month)  
+    EngDept-->>QuotaEngine: ✅ PASS (current: $3,200/month)
+    
+    QuotaEngine->>AcmeCorp: Check organization quota ($10,000/month)
+    AcmeCorp-->>QuotaEngine: ✅ PASS (current: $7,800/month)
+    
+    QuotaEngine->>Model: All quotas passed, execute request
+    Model-->>Request: Return response + usage ($2.50)
+    
+    Note over QuotaEngine: Increment all quotas in the chain:<br/>APIKey: 96/min, Alice: $37.50/day<br/>ML Team: $852.50/month, Eng: $3,202.50/month<br/>Acme: $7,802.50/month
+```
+
+**Critical Behavior**: If ANY quota in this chain fails, the entire request is blocked. This ensures that budget constraints are enforced at every organizational level.
+
+### Scenario B: The "Pooled Quota" (Most Important Use Case)
+
+This scenario supports users who should NOT be individually limited but should contribute to their team's shared budget pool.
+
+**Setup:**
+- **Alice** (ML Engineer): No personal quotas set
+- **Bob** (ML Engineer): No personal quotas set  
+- **ML Team**: $5,000/month shared budget
+- **Use Case**: Team members share a pool without individual limits
+
+**Configuration:**
+```json
+{
+  "users": [
+    {
+      "id": "usr-alice", 
+      "name": "Alice",
+      "quotas": []
+    },
+    {
+      "id": "usr-bob",
+      "name": "Bob", 
+      "quotas": []
+    }
+  ],
+  "groups": [
+    {
+      "id": "grp-ml-team",
+      "name": "ML Team",
+      "quotas": [
+        {
+          "type": "cost",
+          "limit_value": 5000.00,
+          "period": "monthly",
+          "enforcement": "block"
+        }
+      ]
+    }
+  ]
+}
+```
+
+**Request Flow:**
 ```mermaid
 sequenceDiagram
     participant Alice
-    participant API
-    participant PolicyEngine
-    participant SubscriptionService
+    participant QuotaEngine
+    participant AliceQuotas
+    participant TeamQuota
     participant UsageTracker
     
-    Alice->>API: Request GPT-4 inference
-    API->>PolicyEngine: Check RBAC policy
-    Note over PolicyEngine: Policy check:<br/>✓ Alice is in ML team<br/>✓ RBAC allows GPT-4 access
-    PolicyEngine-->>API: Permission granted
+    Alice->>QuotaEngine: Request GPT-4 ($10 cost)
     
-    API->>SubscriptionService: Check subscription
-    Note over SubscriptionService: Subscription selection:<br/>1. Find ML team subscriptions<br/>2. Filter by GPT-4 access: Production (20)<br/>3. Select highest priority: Production<br/>✓ Rate limit: 95/100 req/min<br/>✓ Quota: 45K/50K monthly requests
-    SubscriptionService-->>API: Production subscription selected
+    QuotaEngine->>AliceQuotas: Check Alice's personal quotas
+    AliceQuotas-->>QuotaEngine: ✅ No quotas set (unlimited)
     
-    API->>API: Call GPT-4
-    API->>UsageTracker: Record usage
-    Note over UsageTracker: Create UsageRecord:<br/>- user_id: Alice<br/>- model_id: GPT-4<br/>- subscription_id: Production<br/>- cost: $0.045
-    API-->>Alice: Return response
+    QuotaEngine->>TeamQuota: Check ML Team quota ($5,000/month)
+    TeamQuota-->>QuotaEngine: ✅ PASS (current: $4,200/month)
+    
+    QuotaEngine->>UsageTracker: Execute request & track usage
+    Note over UsageTracker: Create UsageRecord:<br/>- user_id: Alice (attribution)<br/>- group_id: ML Team (budget)<br/>- cost: $10.00
+    
+    UsageTracker->>TeamQuota: Update team usage: $4,210/month
+    UsageTracker-->>Alice: Return response
+    
+    Note over QuotaEngine: Later, when team hits $5,000:<br/>ALL team members blocked (Alice, Bob, etc.)<br/>even though they have no personal limits
 ```
 
-**Data Created:**
-- **UsageRecord** links Alice → GPT-4 → Production Subscription
-- **Cost** is attributed to the Production subscription (shared by ML team)
-- **Subscription selection and policy checks** are logged for audit
+**Key Benefits:**
+1. **Individual Freedom**: Alice and Bob have no personal limits
+2. **Team Accountability**: Their usage counts toward shared team budget
+3. **Clear Attribution**: Each request is still attributed to the individual user
+4. **Automatic Enforcement**: When team budget exhausted, all members are blocked
 
-This demonstrates the **many-to-many subscription model**:
-1. **Policy Check**: WHO can access WHAT (Alice has permission for GPT-4)
-2. **Subscription Selection**: Which subscription to use (Production wins with priority 20)
-3. **Subscription Checks**: 
-   - **Commercial**: GPT-4 is included in Production subscription
-   - **Limits**: HOW MUCH can be consumed (100 req/min, 50K/month)
+### Scenario C: Throttling vs. Blocking
 
-**Benefits of Many-to-Many**:
-- **Shared Subscriptions**: Enterprise subscription used by multiple teams
-- **Multiple Plans**: Teams can have dev/prod/research subscriptions
-- **Priority Selection**: Automatic selection of best subscription for request
-- **Cost Attribution**: Usage tracked to specific subscription for billing
+Advanced enforcement options provide different behaviors when quotas are exceeded.
+
+**Setup: Different Enforcement Types**
+```json
+{
+  "quotas": [
+    {
+      "id": "quota-basic-user",
+      "owner_type": "user", 
+      "owner_id": "usr-basic",
+      "type": "requests",
+      "limit_value": 10,
+      "period": "per_minute",
+      "enforcement": "block"
+    },
+    {
+      "id": "quota-premium-team",
+      "owner_type": "group",
+      "owner_id": "grp-premium", 
+      "type": "requests",
+      "limit_value": 100,
+      "period": "per_minute", 
+      "enforcement": "throttle"
+    }
+  ]
+}
+```
+
+**Behavior Comparison:**
+
+| Enforcement | When Quota Exceeded | User Experience |
+|-------------|-------------------|-----------------|
+| **block** | Immediate 429 error | Hard failure, application must handle retries |
+| **throttle** | Request queued | Application slows down but doesn't fail |
+| **alert** | Request allowed, notification sent | Normal operation, monitoring only |
+
+**Blocking Flow (Standard):**
+```mermaid
+sequenceDiagram
+    participant User
+    participant API
+    participant QuotaEngine
+    
+    User->>API: Request #11 (limit: 10/min)
+    API->>QuotaEngine: Check quota
+    QuotaEngine-->>API: ❌ QUOTA_EXCEEDED (enforcement: block)
+    API-->>User: 429 Too Many Requests
+    
+    Note over User: Application must implement<br/>retry logic and error handling
+```
+
+**Throttling Flow (Premium):**
+```mermaid
+sequenceDiagram
+    participant User
+    participant API
+    participant QuotaEngine
+    participant Queue
+    participant Model
+    
+    User->>API: Request #101 (limit: 100/min) 
+    API->>QuotaEngine: Check quota
+    QuotaEngine-->>API: ⚠️ QUOTA_EXCEEDED (enforcement: throttle)
+    API->>Queue: Add request to queue
+    Queue-->>API: Request queued (position: 15)
+    API-->>User: 202 Accepted, processing...
+    
+    Note over Queue: Wait for capacity...
+    
+    Queue->>Model: Execute request when capacity available
+    Model-->>Queue: Response
+    Queue-->>User: Final response (delayed but successful)
+    
+    Note over User: Application experiences slowdown<br/>but no hard failures
+```
+
+**Use Cases:**
+- **Government/Public Services**: Cannot afford hard failures, throttling ensures service degradation instead of outages
+- **Production Systems**: Throttling prevents cascade failures while maintaining availability  
+- **Development**: Blocking is acceptable for non-critical workloads
+
+## Implementation Benefits
+
+This new hierarchical model provides significant advantages over the previous flat structure:
+
+### 1. Organizational Flexibility
+- **Unlimited Hierarchy**: Support any organizational depth (Org → Division → Department → Team → Project)
+- **Real-World Modeling**: Accurately represents how companies are actually structured
+- **Easy Reorganization**: Moving teams between departments is just a parent_group_id change
+
+### 2. Budget Management
+- **Hierarchical Enforcement**: Budgets enforced at every level of the organization
+- **Pooled Resources**: Teams can share budgets without individual user limits
+- **Transparent Attribution**: Every dollar spent is attributed to both user and budget owner
+
+### 3. Operational Excellence
+- **First-Class Entities**: No more JSON blobs - quotas and keys are queryable objects
+- **Advanced Enforcement**: Support for throttling in addition to blocking
+- **Clear Separation**: Identity, commercial, and access concerns are cleanly separated
+
+### 4. Enterprise Readiness
+- **Multi-Subscription**: Organizations can have separate dev/prod/research subscriptions
+- **Service Accounts**: Groups can have their own API keys for automated systems
+- **Audit Trail**: Complete traceability from request to budget impact
+
+---
+
+## Sample Implementation
+
+Here's how a complete organizational setup might look:
+
+```json
+{
+  "groups": [
+    {
+      "id": "grp-acme",
+      "name": "Acme Corporation",
+      "type": "organization",
+      "parent_group_id": null
+    },
+    {
+      "id": "grp-engineering",
+      "name": "Engineering",
+      "type": "department", 
+      "parent_group_id": "grp-acme"
+    },
+    {
+      "id": "grp-ml-team",
+      "name": "ML Team",
+      "type": "team",
+      "parent_group_id": "grp-engineering"
+    }
+  ],
+  "subscriptions": [
+    {
+      "id": "sub-enterprise",
+      "group_id": "grp-acme",
+      "tier": "enterprise",
+      "entitlements": {
+        "model_access": ["gpt-4", "claude-3"],
+        "feature_throttling": true
+      }
+    }
+  ],
+  "quotas": [
+    {
+      "owner_type": "subscription",
+      "owner_id": "sub-enterprise", 
+      "type": "cost",
+      "limit_value": 20000.00,
+      "period": "monthly"
+    },
+    {
+      "owner_type": "group",
+      "owner_id": "grp-engineering",
+      "type": "cost", 
+      "limit_value": 10000.00,
+      "period": "monthly"
+    },
+    {
+      "owner_type": "group",
+      "owner_id": "grp-ml-team",
+      "type": "cost",
+      "limit_value": 3000.00,
+      "period": "monthly", 
+      "enforcement": "throttle"
+    }
+  ],
+  "users": [
+    {
+      "id": "usr-alice",
+      "email": "alice@acme.com",
+      "memberships": [
+        {
+          "group_id": "grp-ml-team",
+          "role": "engineer"
+        }
+      ]
+    }
+  ],
+  "api_keys": [
+    {
+      "id": "key-alice-personal",
+      "owner_type": "user",
+      "owner_id": "usr-alice",
+      "name": "Alice Personal Key"
+    },
+    {
+      "id": "key-ml-service",
+      "owner_type": "group", 
+      "owner_id": "grp-ml-team",
+      "name": "ML Team Service Account"
+    }
+  ]
+}
+```
+
+**Quota Hierarchy**: `Subscription ($20K)` → `Engineering ($10K)` → `ML Team ($3K)` → `Alice (unlimited)`
+
+**Request Flow**: Alice's $50 request checks quotas in order, updating all levels, and gets throttled (not blocked) if ML Team exceeds $3K.
 
 ---
 
 ## Next Steps
 
-This document focuses on core entities and relationships. Additional documents should cover:
+This document establishes the foundation for a flexible, enterprise-ready identity and billing system. The next phase should focus on:
 
-1. **Policy Implementation Guide** - Detailed policy rules and inheritance
-2. **Billing and Subscription Management** - Pricing models and billing flows  
-3. **API Design** - REST endpoints for entity management
-4. **Database Schema** - Implementation details and constraints
-5. **Migration Guide** - Moving from current to new entity model
+### Immediate Implementation
+1. **Database Schema**: Design tables and relationships for the 5 core entities
+2. **API Endpoints**: Create REST APIs for entity management (CRUD operations)
+3. **Quota Engine**: Implement hierarchical quota checking and enforcement
+4. **Migration Strategy**: Plan transition from current flat structure
 
-The goal is to implement these entities incrementally, starting with the basic User → Group → Subscription relationships.
+### Advanced Features  
+1. **Policy Engine**: Add access control policies on top of the identity hierarchy
+2. **Billing Integration**: Connect usage records to external billing systems
+3. **Advanced Quotas**: Support for time-based quotas (burst allowances, rolling windows)
+4. **Monitoring & Alerts**: Real-time quota monitoring and threshold notifications
+
+### Enterprise Features
+1. **External Identity**: Integration with SAML/OIDC providers
+2. **Cost Allocation**: Chargeback and showback reporting by group/user
+3. **Governance**: Approval workflows for quota changes and key creation
+4. **Multi-Tenancy**: Support for multiple root organizations in a single deployment
+
+The hierarchical model provides the flexibility to support all these future requirements while maintaining clean separation of concerns and transparent budget management.
