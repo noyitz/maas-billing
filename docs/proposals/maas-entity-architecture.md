@@ -128,7 +128,6 @@ erDiagram
         string name
         string tier
         json entitlements
-        json billing_config
         string status
         timestamp start_date
         timestamp end_date
