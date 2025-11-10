@@ -1,5 +1,5 @@
-# MaaS Entity Architecture - Hierarchical Model
-## Flexible Identity and Commercial Separation
+# MaaS Entity Architecture - Token-Based Hierarchical Model
+## Flexible Identity and Resource Entitlement
 
 **Author:** Noy Itzikowitz - with some help from Claude Code :)  
 **Status:** Draft  
@@ -10,33 +10,36 @@
 
 ## Overview
 
-This document defines a new, more robust hierarchical entity model for the MaaS platform. The goal is to establish a flexible, industry-standard data model that enables:
+This document defines a new, simplified token-based hierarchical entity model for the MaaS platform. The goal is to establish a flexible, fast data model that enables:
 
 - **Flexible Identity Hierarchy**: Support multi-level organizational structures (Organization → Department → Team) using recursive Group entities
 - **Clear Separation of Concerns**: 
   - **Identity Layer**: Who the user/group is (User, Group)
-  - **Commercial Layer**: What they bought (Subscription)
-  - **Access Layer**: Authentication and limits (APIKey, Quota)
-- **First-Class Entities**: Structured objects instead of JSON blobs for keys and quotas
-- **Recursive Quota Enforcement**: Hierarchical limit checking with pooled budgets
-- **Advanced Enforcement**: Support for both blocking and throttling behaviors
+  - **Entitlement Layer**: What they're allowed to access (Subscription)
+  - **Enforcement Layer**: Authentication and token limits (APIKey, Quota)
+- **Token-Based Quotas**: Simple integer limits (tokens, requests) with no financial logic
+- **Model-Aware Limits**: Quotas are specific to individual models (gpt-4, claude-3, etc.)
+- **Recursive Enforcement**: Hierarchical limit checking with pooled token budgets
+- **Billing Agnostic**: Core system handles only tokens/requests - financial calculations are separate
 
 ## Problem Statement
 
 **Current Issues:**
 - Flat user/group structure cannot represent complex organizations
 - Quotas and limits are buried in JSON blobs, making them hard to manage
-- No clear hierarchy for budget allocation and enforcement
+- No clear hierarchy for resource allocation and enforcement
 - Limited enforcement options (only blocking, no throttling)
-- Tight coupling between identity, commercial, and access concerns
+- Financial logic mixed with core enforcement, creating complexity
+- No model-specific quota support
 
 **Goals:**
-- Define 5 core entities with clear separation of concerns
+- Define 6 core entities with clear separation of concerns
 - **Hierarchical Identity**: Recursive Group structure supporting any organizational depth
-- **First-Class Quotas**: Structured quota entities with flexible enforcement options
+- **Token-Based Quotas**: Simple integer limits without financial complexity
+- **Model-Aware Limits**: Per-model quota enforcement (gpt-4, claude-3, etc.)
 - **Layered Enforcement**: Quota checks that walk up the organizational hierarchy
-- **Pooled Budgets**: Team/department quotas without individual user limits
-- **Advanced Controls**: Support for throttling (queuing) in addition to blocking
+- **Pooled Token Budgets**: Team/department token pools without individual user limits
+- **Billing Separation**: Core system handles only tokens/requests - costs calculated elsewhere
 
 ---
 
@@ -49,18 +52,24 @@ The system uses recursive Group entities to model any organizational structure:
 - **Teams**: Groups with departments as parent  
 - **Users**: Individuals who belong to one or more Groups
 
-### 2. Separation of Identity from Commercials
+### 2. Separation of Identity from Entitlements
 Clear boundaries between different concerns:
 
 | Layer | Purpose | Entities |
 |-------|---------|----------|
 | **Identity** | Who the user/group is | User, Group |
-| **Commercial** | What they bought | Subscription |
-| **Access** | Authentication and limits | APIKey, Quota |
+| **Entitlement** | What they're allowed to access | Subscription |
+| **Enforcement** | Authentication and token limits | APIKey, Quota |
 
-### 3. First-Class Quotas and Keys
+### 3. Token-Based Simplicity
+- **No Financial Logic**: Core system only understands tokens, requests, and model names
+- **Model-Specific Quotas**: Each quota applies to a specific model (gpt-4, claude-3, etc.)
+- **Integer Limits**: All quota values are simple integers (1000000 tokens, 500 requests/min)
+- **Billing Separation**: Financial calculations happen in a separate billing layer
+
+### 4. First-Class Quotas and Keys
 - **APIKey**: Structured entity (not just a string) with metadata and relationships
-- **Quota**: Dedicated entity (not JSON blob) with type, limit, period, and enforcement options
+- **Quota**: Dedicated entity (not JSON blob) with model, type, limit, and enforcement options
 
 ---
 
@@ -142,7 +151,8 @@ erDiagram
         string owner_type
         string owner_id FK
         string type
-        decimal limit_value
+        string model
+        int limit_value
         string period
         string enforcement
         timestamp created_at
@@ -157,7 +167,6 @@ erDiagram
         string subscription_id FK
         string model_id
         json metrics
-        decimal cost_usd
         timestamp created_at
     }
 ```
@@ -270,8 +279,8 @@ erDiagram
 - **Owns**: Subscriptions (commercial agreements)
 - **Assigned**: Quotas (budget allocations)
 
-### 3. Subscription (The Commercial Agreement)
-**Role**: Defines what the customer bought. Separate from identity to allow a single tenant to have multiple commercial agreements.
+### 3. Subscription (The Entitlement Contract)
+**Role**: Defines what the group is allowed to access. Purely about entitlements and permissions, not commercial terms.
 
 **Core Fields:**
 - `id`: Unique identifier (UUID)
@@ -279,16 +288,15 @@ erDiagram
 - `name`: Subscription name
 - `tier`: Service level (free, pro, enterprise)
 - `entitlements`: What features/models are included (JSON)
-- `billing_config`: Billing settings (JSON)
 - `status`: Current status (active, suspended, expired)
 - `start_date`: Subscription start
 - `end_date`: Subscription end (optional)
 
 **Key Capabilities:**
-- **Feature Entitlements**: Defines which models/features are available
-- **Master Quota Pool**: Total quota available for this commercial plan
+- **Model Access**: Defines which models are available (gpt-4, claude-3, etc.)
+- **Feature Entitlements**: Defines available features (throttling, priority, etc.)
 - **Multiple Per Tenant**: A Group can have multiple subscriptions (e.g., "Prod", "Dev")
-- **Billing Separation**: Each subscription has its own billing configuration
+- **Billing Agnostic**: No commercial terms - purely about what's allowed
 
 **Example:**
 ```json
@@ -298,17 +306,10 @@ erDiagram
   "name": "Enterprise Production Subscription",
   "tier": "enterprise",
   "entitlements": {
+    "model_access": ["gpt-4o", "gpt-3.5-turbo", "claude-3", "dall-e-3"],
     "feature_throttling": true,
     "priority_support": true,
-    "model_access": ["gpt-4", "claude-3", "llama-70b"],
     "max_concurrent_requests": 500
-  },
-  "billing_config": {
-    "rate_per_token": 0.00008,
-    "minimum_monthly_usd": 1000,
-    "overage_rate": 1.2,
-    "currency": "USD",
-    "renewal_period": "monthly"
   },
   "status": "active",
   "start_date": "2024-01-01T00:00:00Z",
@@ -316,14 +317,15 @@ erDiagram
 }
 ```
 
-**Master Quota**: Subscriptions typically have a master Quota object that defines the total pool:
+**Master Quota**: Subscriptions can have master Quota objects that define total token pools:
 ```json
 {
-  "id": "quota-sub-master",
-  "owner_type": "subscription",
+  "id": "quota-sub-master-gpt4",
+  "owner_type": "subscription", 
   "owner_id": "sub-acme-enterprise",
-  "type": "cost",
-  "limit_value": 10000.00,
+  "type": "tokens",
+  "model": "gpt-4o",
+  "limit_value": 1000000000,
   "period": "monthly",
   "enforcement": "block"
 }
@@ -331,8 +333,8 @@ erDiagram
 
 **Relationships:**
 - **Owned by**: A Group (typically root organization)
-- **Has**: Master Quota objects defining the total limits
-- **Tracks**: All UsageRecords for billing
+- **Has**: Master Quota objects defining the total token limits
+- **Tracks**: All UsageRecords for usage attribution
 
 ### 4. APIKey (The Authentication Token)
 **Role**: First-class entity for authentication and usage attribution. No longer just a string, but a structured object with metadata and relationships.
@@ -393,45 +395,49 @@ erDiagram
 - **Can have**: Associated Quota objects for rate limiting
 - **Generates**: All UsageRecords are tied to an APIKey
 
-### 5. Quota (The Limit Rule)
-**Role**: Structured entity defining a single limit. No more JSON blobs - quotas are now first-class, queryable objects.
+### 5. Quota (The Token Limit Rule)
+**Role**: Model-specific token/request limits. Each quota applies to a single model and tracks simple integer values.
 
 **Core Fields:**
 - `id`: Unique identifier (UUID)
 - `owner_type`: What owns this quota (user, group, subscription, api_key)
 - `owner_id`: Owner identifier
-- `type`: Quota type (cost, tokens, requests)
-- `limit_value`: The actual limit (decimal for flexibility)
+- `type`: Quota type (tokens, requests)
+- `model`: Specific model this quota applies to (e.g., "gpt-4o", "claude-3")
+- `limit_value`: The actual limit (integer)
 - `period`: Time period (monthly, daily, hourly, per_minute)
 - `enforcement`: How to handle violations (block, throttle, alert)
 - `created_at`: Creation timestamp
 - `active`: Quota status
 
 **Key Capabilities:**
+- **Model-Specific**: Each quota applies to exactly one model
+- **Token-Based**: Only understands tokens and requests, no financial values
 - **Flexible Attachment**: Can be attached to any entity (User, Group, Subscription, APIKey)
-- **Multiple Types**: Support for cost, token, request, and custom quota types
-- **Advanced Enforcement**: Beyond simple blocking - supports throttling and alerting
-- **Hierarchical Checking**: System walks up the hierarchy checking quotas at each level
+- **Integer Limits**: All quota values are simple integers for fast comparison
+- **Hierarchical Checking**: System walks up the hierarchy checking quotas for the requested model
 
 **Examples:**
 ```json
 [
   {
-    "id": "quota-alice-daily-cap",
+    "id": "quota-alice-gpt4-daily",
     "owner_type": "user",
-    "owner_id": "usr-alice-12345", 
-    "type": "cost",
-    "limit_value": 50.00,
+    "owner_id": "usr-alice-12345",
+    "type": "tokens",
+    "model": "gpt-4o",
+    "limit_value": 100000,
     "period": "daily",
     "enforcement": "block",
     "active": true
   },
   {
-    "id": "quota-ml-team-monthly",
+    "id": "quota-ml-team-claude-monthly",
     "owner_type": "group",
     "owner_id": "grp-ml-team",
-    "type": "cost", 
-    "limit_value": 5000.00,
+    "type": "tokens",
+    "model": "claude-3",
+    "limit_value": 10000000,
     "period": "monthly",
     "enforcement": "throttle",
     "active": true
@@ -441,13 +447,16 @@ erDiagram
     "owner_type": "api_key",
     "owner_id": "key-ml-service",
     "type": "requests",
+    "model": "gpt-4o",
     "limit_value": 100,
-    "period": "per_minute", 
+    "period": "per_minute",
     "enforcement": "block",
     "active": true
   }
 ]
 ```
+
+**Model-Specific Enforcement**: Each quota only applies to its specific model. A user with a gpt-4o token limit can still use claude-3 if they have a separate quota for that model.
 
 **Enforcement Types:**
 - **block**: Standard rate limiting - reject request with 429 error
@@ -459,17 +468,16 @@ erDiagram
 - **Enforced on**: All requests during hierarchical quota checking
 
 ### 6. UsageRecord (The Audit Trail)
-**Role**: Captures individual usage events for billing, attribution, and audit. Critical for connecting usage to budget impact.
+**Role**: Captures individual usage events for token attribution and audit. Critical for connecting usage to quota consumption.
 
 **Core Fields:**
 - `id`: Unique identifier (UUID)
 - `api_key_id`: APIKey that made the request (FK)
-- `user_id`: User who owns the APIKey (FK) 
+- `user_id`: User who owns the APIKey (FK)
 - `group_id`: Group context at time of request (FK)
-- `subscription_id`: Subscription used for billing (FK)
+- `subscription_id`: Subscription used for entitlement (FK)
 - `model_id`: Model that was used
 - `metrics`: Usage details (tokens, duration, etc.) (JSON)
-- `cost_usd`: Calculated cost in USD
 - `created_at`: Request timestamp
 
 **Denormalization Note**: The `user_id`, `group_id`, and `subscription_id` fields are denormalized and stored at the time of the request to simplify and accelerate usage reporting and attribution. This prevents the need for complex JOINs on every reporting query and captures the organizational context at the time of usage (important if users change groups later).
@@ -480,15 +488,15 @@ erDiagram
   "id": "usage-abc123",
   "api_key_id": "key-alice-personal",
   "user_id": "usr-alice-12345",
-  "group_id": "grp-ml-team", 
+  "group_id": "grp-ml-team",
   "subscription_id": "sub-acme-enterprise",
-  "model_id": "gpt-4",
+  "model_id": "gpt-4o",
   "metrics": {
     "input_tokens": 150,
     "output_tokens": 300,
+    "total_tokens": 450,
     "processing_time_ms": 2500
   },
-  "cost_usd": 2.50,
   "created_at": "2024-01-20T14:30:00Z"
 }
 ```
@@ -496,8 +504,8 @@ erDiagram
 **Relationships:**
 - **Generated by**: APIKey (primary relationship)
 - **Attributed to**: User (for accountability)
-- **Charged to**: Subscription (for billing)
-- **Grouped under**: Group (for budget tracking)
+- **Tracked by**: Subscription (for entitlement usage)
+- **Grouped under**: Group (for quota tracking)
 
 ---
 
@@ -507,14 +515,14 @@ This section explains how the hierarchical model supports the most important use
 
 ### Scenario A: The Recursive Layered Quota Check
 
-When a request comes in with an APIKey, the system performs hierarchical quota checking by walking up the Group tree. This ensures budgets are enforced at every organizational level.
+When a request comes in with an APIKey, the system performs hierarchical quota checking by walking up the Group tree. This ensures token limits are enforced at every organizational level for the specific model being requested.
 
-**Setup:**
-- **Organization**: Acme Corp ($10,000/month master limit)
-- **Department**: Engineering Dept ($5,000/month allocation)  
-- **Team**: ML Team ($1,000/month budget)
-- **User**: Alice (personal $50/day cap)
-- **APIKey**: Alice's personal key (100 requests/minute rate limit)
+**Setup (for gpt-4o model):**
+- **Organization**: Acme Corp (100M tokens/month for gpt-4o)
+- **Department**: Engineering Dept (50M tokens/month for gpt-4o)
+- **Team**: ML Team (10M tokens/month for gpt-4o)
+- **User**: Alice (personal 100K tokens/day for gpt-4o)
+- **APIKey**: Alice's personal key (1000 requests/minute for gpt-4o)
 
 **Hierarchical Check Flow:**
 ```mermaid
@@ -528,53 +536,53 @@ sequenceDiagram
     participant AcmeCorp
     participant Model
     
-    Request->>QuotaEngine: GPT-4 request with Alice's key
+    Request->>QuotaEngine: gpt-4o request (450 tokens) with Alice's key
     
-    QuotaEngine->>APIKey: Check key quota (100 req/min)
-    APIKey-->>QuotaEngine: ✅ PASS (current: 95/min)
+    QuotaEngine->>APIKey: Check key quota (gpt-4o: 1000 req/min)
+    APIKey-->>QuotaEngine: ✅ PASS (current: 995/min)
     
-    QuotaEngine->>User: Check Alice's personal quota ($50/day)
-    User-->>QuotaEngine: ✅ PASS (current: $35/day)
+    QuotaEngine->>User: Check Alice's quota (gpt-4o: 100K tokens/day)
+    User-->>QuotaEngine: ✅ PASS (current: 85,000/day)
     
-    QuotaEngine->>MLTeam: Check ML Team quota ($1,000/month)
-    MLTeam-->>QuotaEngine: ✅ PASS (current: $850/month)
+    QuotaEngine->>MLTeam: Check ML Team quota (gpt-4o: 10M tokens/month)
+    MLTeam-->>QuotaEngine: ✅ PASS (current: 8.5M/month)
     
-    QuotaEngine->>EngDept: Check Engineering quota ($5,000/month)  
-    EngDept-->>QuotaEngine: ✅ PASS (current: $3,200/month)
+    QuotaEngine->>EngDept: Check Engineering quota (gpt-4o: 50M tokens/month)
+    EngDept-->>QuotaEngine: ✅ PASS (current: 32M/month)
     
-    QuotaEngine->>AcmeCorp: Check organization quota ($10,000/month)
-    AcmeCorp-->>QuotaEngine: ✅ PASS (current: $7,800/month)
+    QuotaEngine->>AcmeCorp: Check organization quota (gpt-4o: 100M tokens/month)
+    AcmeCorp-->>QuotaEngine: ✅ PASS (current: 78M/month)
     
-    QuotaEngine->>Model: All quotas passed, execute request
-    Model-->>Request: Return response + usage ($2.50)
+    QuotaEngine->>Model: All quotas passed, execute gpt-4o request
+    Model-->>Request: Return response (450 tokens consumed)
     
-    Note over QuotaEngine: Increment all quotas in the chain:<br/>APIKey: 96/min, Alice: $37.50/day<br/>ML Team: $852.50/month, Eng: $3,202.50/month<br/>Acme: $7,802.50/month
+    Note over QuotaEngine: Increment all quotas in the chain:<br/>APIKey: 996/min, Alice: 85,450/day<br/>ML Team: 8.5M+450/month, Eng: 32M+450/month<br/>Acme: 78M+450/month
 ```
 
-**Critical Behavior**: If ANY quota in this chain fails, the entire request is blocked. This ensures that budget constraints are enforced at every organizational level.
+**Critical Behavior**: If ANY quota in this chain fails, the entire request is blocked. This ensures that token limits are enforced at every organizational level for the specific model. **Model Specificity**: This check only applies to gpt-4o quotas - Alice could still use claude-3 if she has separate quotas for that model.
 
 ### Scenario B: The "Pooled Quota" (Most Important Use Case)
 
-This scenario supports users who should NOT be individually limited but should contribute to their team's shared budget pool.
+This scenario supports users who should NOT be individually limited but should contribute to their team's shared token pool.
 
 **Setup:**
-- **Alice** (ML Engineer): No personal quotas set
-- **Bob** (ML Engineer): No personal quotas set  
-- **ML Team**: $5,000/month shared budget
-- **Use Case**: Team members share a pool without individual limits
+- **Alice** (ML Engineer): No personal quotas set for gpt-4o
+- **Bob** (ML Engineer): No personal quotas set for gpt-4o
+- **ML Team**: 10M tokens/month shared pool for gpt-4o
+- **Use Case**: Team members share a token pool without individual limits
 
 **Configuration:**
 ```json
 {
   "users": [
     {
-      "id": "usr-alice", 
+      "id": "usr-alice",
       "name": "Alice",
       "quotas": []
     },
     {
-      "id": "usr-bob",
-      "name": "Bob", 
+      "id": "usr-bob", 
+      "name": "Bob",
       "quotas": []
     }
   ],
@@ -584,8 +592,9 @@ This scenario supports users who should NOT be individually limited but should c
       "name": "ML Team",
       "quotas": [
         {
-          "type": "cost",
-          "limit_value": 5000.00,
+          "type": "tokens",
+          "model": "gpt-4o",
+          "limit_value": 10000000,
           "period": "monthly",
           "enforcement": "block"
         }
@@ -604,32 +613,32 @@ sequenceDiagram
     participant TeamQuota
     participant UsageTracker
     
-    Alice->>QuotaEngine: Request GPT-4 ($10 cost)
+    Alice->>QuotaEngine: Request gpt-4o (500 tokens)
     
-    QuotaEngine->>AliceQuotas: Check Alice's personal quotas
+    QuotaEngine->>AliceQuotas: Check Alice's gpt-4o quotas
     AliceQuotas-->>QuotaEngine: ✅ No quotas set (unlimited)
     
-    QuotaEngine->>TeamQuota: Check ML Team quota ($5,000/month)
-    TeamQuota-->>QuotaEngine: ✅ PASS (current: $4,200/month)
+    QuotaEngine->>TeamQuota: Check ML Team gpt-4o quota (10M tokens/month)
+    TeamQuota-->>QuotaEngine: ✅ PASS (current: 8.2M/month)
     
     QuotaEngine->>UsageTracker: Execute request & track usage
-    Note over UsageTracker: Create UsageRecord:<br/>- user_id: Alice (attribution)<br/>- group_id: ML Team (budget)<br/>- cost: $10.00
+    Note over UsageTracker: Create UsageRecord:<br/>- user_id: Alice (attribution)<br/>- group_id: ML Team (token pool)<br/>- model_id: gpt-4o<br/>- tokens: 500
     
-    UsageTracker->>TeamQuota: Update team usage: $4,210/month
+    UsageTracker->>TeamQuota: Update team usage: 8,200,500/month
     UsageTracker-->>Alice: Return response
     
-    Note over QuotaEngine: Later, when team hits $5,000:<br/>ALL team members blocked (Alice, Bob, etc.)<br/>even though they have no personal limits
+    Note over QuotaEngine: Later, when team hits 10M tokens:<br/>ALL team members blocked for gpt-4o (Alice, Bob, etc.)<br/>even though they have no personal limits<br/>(but they can still use claude-3 if separate quota exists)
 ```
 
 **Key Benefits:**
-1. **Individual Freedom**: Alice and Bob have no personal limits
-2. **Team Accountability**: Their usage counts toward shared team budget
+1. **Individual Freedom**: Alice and Bob have no personal token limits
+2. **Team Accountability**: Their usage counts toward shared team token pool
 3. **Clear Attribution**: Each request is still attributed to the individual user
-4. **Automatic Enforcement**: When team budget exhausted, all members are blocked
+4. **Model-Specific Enforcement**: When gpt-4o pool exhausted, all members blocked for that model only
 
 ### Scenario C: Throttling vs. Blocking
 
-Advanced enforcement options provide different behaviors when quotas are exceeded.
+Advanced enforcement options provide different behaviors when token quotas are exceeded.
 
 **Setup: Different Enforcement Types**
 ```json
@@ -637,9 +646,10 @@ Advanced enforcement options provide different behaviors when quotas are exceede
   "quotas": [
     {
       "id": "quota-basic-user",
-      "owner_type": "user", 
+      "owner_type": "user",
       "owner_id": "usr-basic",
       "type": "requests",
+      "model": "gpt-4o",
       "limit_value": 10,
       "period": "per_minute",
       "enforcement": "block"
@@ -647,10 +657,11 @@ Advanced enforcement options provide different behaviors when quotas are exceede
     {
       "id": "quota-premium-team",
       "owner_type": "group",
-      "owner_id": "grp-premium", 
-      "type": "requests",
-      "limit_value": 100,
-      "period": "per_minute", 
+      "owner_id": "grp-premium",
+      "type": "tokens",
+      "model": "gpt-4o", 
+      "limit_value": 100000,
+      "period": "per_minute",
       "enforcement": "throttle"
     }
   ]
@@ -672,12 +683,12 @@ sequenceDiagram
     participant API
     participant QuotaEngine
     
-    User->>API: Request #11 (limit: 10/min)
-    API->>QuotaEngine: Check quota
+    User->>API: gpt-4o Request #11 (limit: 10 req/min)
+    API->>QuotaEngine: Check gpt-4o quota
     QuotaEngine-->>API: ❌ QUOTA_EXCEEDED (enforcement: block)
-    API-->>User: 429 Too Many Requests
+    API-->>User: 429 Too Many Requests for gpt-4o
     
-    Note over User: Application must implement<br/>retry logic and error handling
+    Note over User: Application must implement<br/>retry logic and error handling<br/>Could still try claude-3 if available
 ```
 
 **Throttling Flow (Premium):**
@@ -689,25 +700,30 @@ sequenceDiagram
     participant Queue
     participant Model
     
-    User->>API: Request #101 (limit: 100/min) 
-    API->>QuotaEngine: Check quota
+    User->>API: gpt-4o request (5K tokens, exceeds 100K/min limit)
+    API->>QuotaEngine: Check gpt-4o token quota
     QuotaEngine-->>API: ⚠️ QUOTA_EXCEEDED (enforcement: throttle)
-    API->>Queue: Add request to queue
+    API->>Queue: Add gpt-4o request to queue
     Queue-->>API: Request queued (position: 15)
     API-->>User: 202 Accepted, processing...
     
     Note over Queue: Wait for capacity...
     
-    Queue->>Model: Execute request when capacity available
+    Queue->>Model: Execute gpt-4o request when tokens available
     Model-->>Queue: Response
     Queue-->>User: Final response (delayed but successful)
     
-    Note over User: Application experiences slowdown<br/>but no hard failures
+    Note over User: Application experiences slowdown<br/>but no hard failures for gpt-4o
 ```
+
+**Model-Specific Benefits:**
+- **Per-Model Enforcement**: Throttling applies only to the specific model (gpt-4o) - users can still access other models
+- **Granular Control**: Different enforcement policies for different models based on cost/importance
+- **Flexible Fallback**: Applications can try alternative models when preferred model is throttled
 
 **Use Cases:**
 - **Government/Public Services**: Cannot afford hard failures, throttling ensures service degradation instead of outages
-- **Production Systems**: Throttling prevents cascade failures while maintaining availability  
+- **Production Systems**: Throttling prevents cascade failures while maintaining availability
 - **Development**: Blocking is acceptable for non-critical workloads
 
 ## Implementation Benefits
@@ -719,20 +735,23 @@ This new hierarchical model provides significant advantages over the previous fl
 - **Real-World Modeling**: Accurately represents how companies are actually structured
 - **Easy Reorganization**: Moving teams between departments is just a parent_group_id change
 
-### 2. Budget Management
-- **Hierarchical Enforcement**: Budgets enforced at every level of the organization
-- **Pooled Resources**: Teams can share budgets without individual user limits
-- **Transparent Attribution**: Every dollar spent is attributed to both user and budget owner
+### 2. Token Management
+- **Hierarchical Enforcement**: Token limits enforced at every level of the organization
+- **Pooled Resources**: Teams can share token pools without individual user limits  
+- **Model-Specific Control**: Separate quotas for each model (gpt-4o, claude-3, etc.)
+- **Transparent Attribution**: Every token consumed is attributed to both user and quota owner
 
 ### 3. Operational Excellence
 - **First-Class Entities**: No more JSON blobs - quotas and keys are queryable objects
 - **Advanced Enforcement**: Support for throttling in addition to blocking
-- **Clear Separation**: Identity, commercial, and access concerns are cleanly separated
+- **Clear Separation**: Identity, entitlement, and enforcement concerns are cleanly separated
+- **Billing Agnostic**: Core system only handles tokens - financial calculations are separate
 
 ### 4. Enterprise Readiness
-- **Multi-Subscription**: Organizations can have separate dev/prod/research subscriptions
+- **Multi-Subscription**: Organizations can have separate dev/prod/research entitlements
 - **Service Accounts**: Groups can have their own API keys for automated systems
-- **Audit Trail**: Complete traceability from request to budget impact
+- **Model-Specific Control**: Fine-grained quotas per model for precise resource management
+- **Audit Trail**: Complete traceability from request to token consumption
 
 ---
 
@@ -776,24 +795,27 @@ Here's how a complete organizational setup might look:
   "quotas": [
     {
       "owner_type": "subscription",
-      "owner_id": "sub-enterprise", 
-      "type": "cost",
-      "limit_value": 20000.00,
+      "owner_id": "sub-enterprise",
+      "type": "tokens",
+      "model": "gpt-4o",
+      "limit_value": 1000000000,
       "period": "monthly"
     },
     {
-      "owner_type": "group",
+      "owner_type": "group", 
       "owner_id": "grp-engineering",
-      "type": "cost", 
-      "limit_value": 10000.00,
+      "type": "tokens",
+      "model": "gpt-4o",
+      "limit_value": 500000000,
       "period": "monthly"
     },
     {
       "owner_type": "group",
       "owner_id": "grp-ml-team",
-      "type": "cost",
-      "limit_value": 3000.00,
-      "period": "monthly", 
+      "type": "tokens", 
+      "model": "gpt-4o",
+      "limit_value": 100000000,
+      "period": "monthly",
       "enforcement": "throttle"
     }
   ],
@@ -826,32 +848,32 @@ Here's how a complete organizational setup might look:
 }
 ```
 
-**Quota Hierarchy**: `Subscription ($20K)` → `Engineering ($10K)` → `ML Team ($3K)` → `Alice (unlimited)`
+**Token Hierarchy for gpt-4o**: `Subscription (1B tokens)` → `Engineering (500M tokens)` → `ML Team (100M tokens)` → `Alice (unlimited)`
 
-**Request Flow**: Alice's $50 request checks quotas in order, updating all levels, and gets throttled (not blocked) if ML Team exceeds $3K.
+**Request Flow**: Alice's gpt-4o request checks token quotas in order, updating all levels, and gets throttled (not blocked) if ML Team exceeds 100M tokens for gpt-4o. She could still use claude-3 if separate quotas exist.
 
 ---
 
 ## Next Steps
 
-This document establishes the foundation for a flexible, enterprise-ready identity and billing system. The next phase should focus on:
+This document establishes the foundation for a flexible, enterprise-ready token enforcement system. The next phase should focus on:
 
 ### Immediate Implementation
-1. **Database Schema**: Design tables and relationships for the 5 core entities
-2. **API Endpoints**: Create REST APIs for entity management (CRUD operations)
-3. **Quota Engine**: Implement hierarchical quota checking and enforcement
+1. **Database Schema**: Design tables and relationships for the 6 core entities
+2. **API Endpoints**: Create REST APIs for entity management (CRUD operations)  
+3. **Token Quota Engine**: Implement hierarchical, model-specific quota checking and enforcement
 4. **Migration Strategy**: Plan transition from current flat structure
 
-### Advanced Features  
+### Advanced Features
 1. **Policy Engine**: Add access control policies on top of the identity hierarchy
-2. **Billing Integration**: Connect usage records to external billing systems
+2. **Billing Integration**: Connect usage records to external billing systems for cost calculation
 3. **Advanced Quotas**: Support for time-based quotas (burst allowances, rolling windows)
 4. **Monitoring & Alerts**: Real-time quota monitoring and threshold notifications
 
 ### Enterprise Features
 1. **External Identity**: Integration with SAML/OIDC providers
-2. **Cost Allocation**: Chargeback and showback reporting by group/user
+2. **Usage Analytics**: Detailed reporting by group/user/model for capacity planning
 3. **Governance**: Approval workflows for quota changes and key creation
 4. **Multi-Tenancy**: Support for multiple root organizations in a single deployment
 
-The hierarchical model provides the flexibility to support all these future requirements while maintaining clean separation of concerns and transparent budget management.
+The token-based hierarchical model provides the flexibility to support all these future requirements while maintaining clean separation of concerns between token enforcement and financial calculations. The billing layer can be built separately on top of this foundation.
