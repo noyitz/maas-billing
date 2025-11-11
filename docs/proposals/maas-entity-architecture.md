@@ -1,7 +1,7 @@
 # MaaS Entity Architecture - Token-Based Hierarchical Model
 ## Flexible Identity and Resource Entitlement
 
-**Author:** Noy Itzikowitz
+**Author:** Noy Itzikowitz 
 **Status:** Draft  
 **Created:** 2024-10-27  
 **Updated:** 2024-11-10  
