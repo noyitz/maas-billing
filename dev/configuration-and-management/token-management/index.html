@@ -8,31 +8,31 @@
       
       
       
-        <link rel="canonical" href="https://opendatahub-io.github.io/maas-billing/dev/quickstart/">
+        <link rel="canonical" href="https://opendatahub-io.github.io/maas-billing/dev/configuration-and-management/token-management/">
       
       
-        <link rel="prev" href="..">
+        <link rel="prev" href="../tier-concepts/">
       
       
-        <link rel="next" href="../architecture/">
+        <link rel="next" href="../model-setup/">
       
       
         
       
       
-      <link rel="icon" href="../assets/favicon.ico">
+      <link rel="icon" href="../../assets/favicon.ico">
       <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.0">
     
     
       
-        <title>Quick Start - ODH Model-as-a-Service Documentation</title>
+        <title>Token Management - ODH Model-as-a-Service Documentation</title>
       
     
     
-      <link rel="stylesheet" href="../assets/stylesheets/main.618322db.min.css">
+      <link rel="stylesheet" href="../../assets/stylesheets/main.618322db.min.css">
       
         
-        <link rel="stylesheet" href="../assets/stylesheets/palette.ab4e12ef.min.css">
+        <link rel="stylesheet" href="../../assets/stylesheets/palette.ab4e12ef.min.css">
       
       
 
@@ -51,7 +51,7 @@
       
     
     
-    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
     
       
 
@@ -76,7 +76,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#installation-guide" class="md-skip">
+        <a href="#understanding-token-management" class="md-skip">
           Skip to content
         </a>
       
@@ -94,9 +94,9 @@
 
 <header class="md-header" data-md-component="header">
   <nav class="md-header__inner md-grid" aria-label="Header">
-    <a href=".." title="ODH Model-as-a-Service Documentation" class="md-header__button md-logo" aria-label="ODH Model-as-a-Service Documentation" data-md-component="logo">
+    <a href="../.." title="ODH Model-as-a-Service Documentation" class="md-header__button md-logo" aria-label="ODH Model-as-a-Service Documentation" data-md-component="logo">
       
-  <img src="../assets/favicon.ico" alt="logo">
+  <img src="../../assets/favicon.ico" alt="logo">
 
     </a>
     <label class="md-header__button md-icon" for="__drawer">
@@ -113,7 +113,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              Quick Start
+              Token Management
             
           </span>
         </div>
@@ -231,7 +231,7 @@
   
   
     <li class="md-tabs__item">
-      <a href=".." class="md-tabs__link">
+      <a href="../.." class="md-tabs__link">
         
   
   
@@ -248,11 +248,9 @@
   
   
   
-    
   
-  
-    <li class="md-tabs__item md-tabs__item--active">
-      <a href="./" class="md-tabs__link">
+    <li class="md-tabs__item">
+      <a href="../../quickstart/" class="md-tabs__link">
         
   
   
@@ -271,7 +269,7 @@
   
   
     <li class="md-tabs__item">
-      <a href="../architecture/" class="md-tabs__link">
+      <a href="../../architecture/" class="md-tabs__link">
         
   
   
@@ -288,6 +286,8 @@
   
   
   
+    
+  
   
     
     
@@ -295,11 +295,13 @@
   
   
   
+    
+  
   
     
     
-      <li class="md-tabs__item">
-        <a href="../install/prerequisites/" class="md-tabs__link">
+      <li class="md-tabs__item md-tabs__item--active">
+        <a href="../../install/prerequisites/" class="md-tabs__link">
           
   
   
@@ -322,7 +324,7 @@
     
     
       <li class="md-tabs__item">
-        <a href="../user-guide/self-service-model-access/" class="md-tabs__link">
+        <a href="../../user-guide/self-service-model-access/" class="md-tabs__link">
           
   
   
@@ -356,9 +358,9 @@
 
 <nav class="md-nav md-nav--primary md-nav--lifted" aria-label="Navigation" data-md-level="0">
   <label class="md-nav__title" for="__drawer">
-    <a href=".." title="ODH Model-as-a-Service Documentation" class="md-nav__button md-logo" aria-label="ODH Model-as-a-Service Documentation" data-md-component="logo">
+    <a href="../.." title="ODH Model-as-a-Service Documentation" class="md-nav__button md-logo" aria-label="ODH Model-as-a-Service Documentation" data-md-component="logo">
       
-  <img src="../assets/favicon.ico" alt="logo">
+  <img src="../../assets/favicon.ico" alt="logo">
 
     </a>
     ODH Model-as-a-Service Documentation
@@ -385,7 +387,7 @@
   
   
     <li class="md-nav__item">
-      <a href=".." class="md-nav__link">
+      <a href="../.." class="md-nav__link">
         
   
   
@@ -409,37 +411,10 @@
       
   
   
-    
   
   
-  
-    <li class="md-nav__item md-nav__item--active">
-      
-      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
-      
-      
-        
-      
-      
-        <label class="md-nav__link md-nav__link--active" for="__toc">
-          
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Quick Start
-  
-
-    
-  </span>
-  
-  
-
-          <span class="md-nav__icon md-icon"></span>
-        </label>
-      
-      <a href="./" class="md-nav__link md-nav__link--active">
+    <li class="md-nav__item">
+      <a href="../../quickstart/" class="md-nav__link">
         
   
   
@@ -455,176 +430,6 @@
   
 
       </a>
-      
-        
-
-<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
-  
-  
-  
-    
-  
-  
-    <label class="md-nav__title" for="__toc">
-      <span class="md-nav__icon md-icon"></span>
-      Table of contents
-    </label>
-    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
-      
-        <li class="md-nav__item">
-  <a href="#prerequisites" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Prerequisites
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#quick-start" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Quick Start
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="Quick Start">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#automated-openshift-deployment-recommended" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Automated OpenShift Deployment (Recommended)
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#verify-deployment" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Verify Deployment
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#model-setup-optional" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Model Setup (Optional)
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="Model Setup (Optional)">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#deploy-sample-models-optional" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Deploy Sample Models (Optional)
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="Deploy Sample Models (Optional)">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#simulator-model-cpu" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Simulator Model (CPU)
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#facebook-opt-125m-model-cpu" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Facebook OPT-125M Model (CPU)
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#qwen3-model-gpu-required" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Qwen3 Model (GPU Required)
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#verify-model-deployment" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Verify Model Deployment
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#update-existing-models-optional" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Update Existing Models (Optional)
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#next-steps" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Next Steps
-      
-    </span>
-  </a>
-  
-</li>
-      
-    </ul>
-  
-</nav>
-      
     </li>
   
 
@@ -636,7 +441,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../architecture/" class="md-nav__link">
+      <a href="../../architecture/" class="md-nav__link">
         
   
   
@@ -660,28 +465,31 @@
       
   
   
+    
   
   
+  
     
     
     
     
+      
+        
+        
       
       
         
       
     
     
-    <li class="md-nav__item md-nav__item--nested">
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
       
         
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" checked>
         
           
-        
-        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_4" >
-        
-          
-          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="0">
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="">
             
   
   
@@ -699,7 +507,7 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="true">
           <label class="md-nav__title" for="__nav_4">
             <span class="md-nav__icon md-icon"></span>
             
@@ -723,10 +531,13 @@
       
       
         
+          
+          
+        
       
     
     
-    <li class="md-nav__item md-nav__item--nested">
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
       
         
         
@@ -735,7 +546,7 @@
         <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_4_1" >
         
           
-          <label class="md-nav__link" for="__nav_4_1" id="__nav_4_1_label" tabindex="0">
+          <label class="md-nav__link" for="__nav_4_1" id="__nav_4_1_label" tabindex="">
             
   
   
@@ -771,7 +582,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../install/prerequisites/" class="md-nav__link">
+      <a href="../../install/prerequisites/" class="md-nav__link">
         
   
   
@@ -853,7 +664,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../install/odh-setup/" class="md-nav__link">
+      <a href="../../install/odh-setup/" class="md-nav__link">
         
   
   
@@ -881,7 +692,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../install/rhoai-setup/" class="md-nav__link">
+      <a href="../../install/rhoai-setup/" class="md-nav__link">
         
   
   
@@ -931,10 +742,13 @@
       
       
         
+          
+          
+        
       
     
     
-    <li class="md-nav__item md-nav__item--nested">
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
       
         
         
@@ -943,7 +757,7 @@
         <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_4_2" >
         
           
-          <label class="md-nav__link" for="__nav_4_2" id="__nav_4_2_label" tabindex="0">
+          <label class="md-nav__link" for="__nav_4_2" id="__nav_4_2_label" tabindex="">
             
   
   
@@ -979,7 +793,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../install/maas-setup/" class="md-nav__link">
+      <a href="../../install/maas-setup/" class="md-nav__link">
         
   
   
@@ -1007,7 +821,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../install/validation/" class="md-nav__link">
+      <a href="../../install/validation/" class="md-nav__link">
         
   
   
@@ -1040,28 +854,31 @@
                 
   
   
+    
   
   
+  
     
     
     
     
       
       
-        
-      
-    
-    
-    <li class="md-nav__item md-nav__item--nested">
-      
-        
         
           
+          
         
-        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_4_3" >
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4_3" checked>
         
           
-          <label class="md-nav__link" for="__nav_4_3" id="__nav_4_3_label" tabindex="0">
+          <label class="md-nav__link" for="__nav_4_3" id="__nav_4_3_label" tabindex="">
             
   
   
@@ -1079,7 +896,7 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_4_3_label" aria-expanded="false">
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_4_3_label" aria-expanded="true">
           <label class="md-nav__title" for="__nav_4_3">
             <span class="md-nav__icon md-icon"></span>
             
@@ -1097,7 +914,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../configuration-and-management/tier-overview/" class="md-nav__link">
+      <a href="../tier-overview/" class="md-nav__link">
         
   
   
@@ -1125,7 +942,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../configuration-and-management/tier-configuration/" class="md-nav__link">
+      <a href="../tier-configuration/" class="md-nav__link">
         
   
   
@@ -1153,7 +970,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../configuration-and-management/tier-concepts/" class="md-nav__link">
+      <a href="../tier-concepts/" class="md-nav__link">
         
   
   
@@ -1178,10 +995,37 @@
                 
   
   
+    
   
   
-    <li class="md-nav__item">
-      <a href="../configuration-and-management/token-management/" class="md-nav__link">
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Token Management
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
         
   
   
@@ -1197,6 +1041,159 @@
   
 
       </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#table-of-contents" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Table of Contents
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#overview" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Overview
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#how-token-issuance-works" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        How Token Issuance Works
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="How Token Issuance Works">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#key-concepts" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Key Concepts
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#token-issuance-flow" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Token Issuance Flow
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#practical-usage" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Practical Usage
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#token-lifecycle-management" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Token Lifecycle Management
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Token Lifecycle Management">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#token-expiration" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Token Expiration
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#token-revocation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Token Revocation
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#frequently-asked-questions-faq" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Frequently Asked Questions (FAQ)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#related-documentation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Related Documentation
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
     </li>
   
 
@@ -1217,7 +1214,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../configuration-and-management/model-setup/" class="md-nav__link">
+      <a href="../model-setup/" class="md-nav__link">
         
   
   
@@ -1251,10 +1248,13 @@
       
       
         
+          
+          
+        
       
     
     
-    <li class="md-nav__item md-nav__item--nested">
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
       
         
         
@@ -1263,7 +1263,7 @@
         <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_4_5" >
         
           
-          <label class="md-nav__link" for="__nav_4_5" id="__nav_4_5_label" tabindex="0">
+          <label class="md-nav__link" for="__nav_4_5" id="__nav_4_5_label" tabindex="">
             
   
   
@@ -1299,7 +1299,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../advanced-administration/observability/" class="md-nav__link">
+      <a href="../../advanced-administration/observability/" class="md-nav__link">
         
   
   
@@ -1327,7 +1327,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../advanced-administration/limitador-persistence/" class="md-nav__link">
+      <a href="../../advanced-administration/limitador-persistence/" class="md-nav__link">
         
   
   
@@ -1424,7 +1424,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../user-guide/self-service-model-access/" class="md-nav__link">
+      <a href="../../user-guide/self-service-model-access/" class="md-nav__link">
         
   
   
@@ -1479,10 +1479,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#prerequisites" class="md-nav__link">
+  <a href="#table-of-contents" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Prerequisites
+        Table of Contents
       
     </span>
   </a>
@@ -1490,22 +1490,33 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#quick-start" class="md-nav__link">
+  <a href="#overview" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Quick Start
+        Overview
       
     </span>
   </a>
   
-    <nav class="md-nav" aria-label="Quick Start">
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#how-token-issuance-works" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        How Token Issuance Works
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="How Token Issuance Works">
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#automated-openshift-deployment-recommended" class="md-nav__link">
+  <a href="#key-concepts" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Automated OpenShift Deployment (Recommended)
+        Key Concepts
       
     </span>
   </a>
@@ -1513,10 +1524,10 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#verify-deployment" class="md-nav__link">
+  <a href="#token-issuance-flow" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Verify Deployment
+        Token Issuance Flow
       
     </span>
   </a>
@@ -1529,34 +1540,33 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#model-setup-optional" class="md-nav__link">
+  <a href="#practical-usage" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Model Setup (Optional)
+        Practical Usage
       
     </span>
   </a>
   
-    <nav class="md-nav" aria-label="Model Setup (Optional)">
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#token-lifecycle-management" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Token Lifecycle Management
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Token Lifecycle Management">
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#deploy-sample-models-optional" class="md-nav__link">
+  <a href="#token-expiration" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Deploy Sample Models (Optional)
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="Deploy Sample Models (Optional)">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#simulator-model-cpu" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Simulator Model (CPU)
+        Token Expiration
       
     </span>
   </a>
@@ -1564,51 +1574,13 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#facebook-opt-125m-model-cpu" class="md-nav__link">
+  <a href="#token-revocation" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Facebook OPT-125M Model (CPU)
+        Token Revocation
       
     </span>
   </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#qwen3-model-gpu-required" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Qwen3 Model (GPU Required)
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#verify-model-deployment" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Verify Model Deployment
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#update-existing-models-optional" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Update Existing Models (Optional)
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
   
 </li>
         
@@ -1618,10 +1590,21 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#next-steps" class="md-nav__link">
+  <a href="#frequently-asked-questions-faq" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Next Steps
+        Frequently Asked Questions (FAQ)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#related-documentation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Related Documentation
       
     </span>
   </a>
@@ -1648,126 +1631,140 @@
   
 
 
-<h1 id="installation-guide">Installation Guide</h1>
-<p>This guide provides quickstart instructions for deploying the MaaS Platform infrastructure.</p>
+<h1 id="understanding-token-management">Understanding Token Management</h1>
+<p>This guide explains the token-based authentication system used to access models in the tier-based access control system. 
+It covers how token issuance works, the underlying service account architecture, and token lifecycle management.</p>
 <div class="admonition note">
 <p class="admonition-title">Note</p>
-<p>For more detailed instructions, please refer to <a href="../install/prerequisites/">Installation under the Administrator Guide</a>.</p>
+<p><strong>Prerequisites</strong>: This document assumes you have already configured tiers, RBAC, and rate limits. 
+See <a href="../tier-configuration/">Configuring Subscription Tiers</a> for setup instructions.</p>
 </div>
-<h2 id="prerequisites">Prerequisites</h2>
+<hr />
+<h2 id="table-of-contents">Table of Contents</h2>
+<ol>
+<li><a href="#overview">Overview</a></li>
+<li><a href="#how-token-issuance-works">How Token Issuance Works</a></li>
+<li><a href="#practical-usage">Practical Usage</a></li>
+<li><a href="#token-lifecycle-management">Token Lifecycle Management</a></li>
+<li><a href="#frequently-asked-questions-faq">Frequently Asked Questions (FAQ)</a></li>
+<li><a href="#related-documentation">Related Documentation</a></li>
+</ol>
+<hr />
+<h2 id="overview">Overview</h2>
+<p>The platform uses a secure, token-based authentication system. Instead of using your primary OpenShift credentials to 
+access models directly, you first exchange them for a temporary, specialized access token. This approach provides several key benefits:</p>
 <ul>
-<li><strong>OpenShift cluster</strong> (4.19.9+) with kubectl/oc access<ul>
-<li><strong>Recommended</strong> 16 vCPUs, 32GB RAM, 100GB storage</li>
+<li><strong>Enhanced Security</strong>: Tokens are short-lived, reducing the risk of compromised credentials. They are also narrowly scoped for model access only.</li>
+<li><strong>Tier-Based Access Control</strong>: The token you receive is automatically associated with your subscription tier (e.g., free, premium), ensuring you get the correct permissions and rate limits.</li>
+<li><strong>Auditability</strong>: Every request made with a token is tied to a specific identity and can be audited.</li>
+<li><strong>Kubernetes-Native Integration</strong>: The system leverages standard, Kubernetes authentication and authorization mechanisms.</li>
 </ul>
-</li>
-<li><strong>ODH/RHOAI requirements</strong>:<ul>
-<li>RHOAI 3.0 +</li>
-<li>ODH 3.0 +</li>
-</ul>
-</li>
-<li><strong>RHCL requirements</strong> (Note: This can be installed automatically by the script below):<ul>
-<li>RHCL 1.2 +</li>
-</ul>
-</li>
-<li><strong>Cluster admin</strong> or equivalent permissions</li>
-<li><strong>Required tools</strong>:<ul>
-<li><code>oc</code> (OpenShift CLI)</li>
-<li><code>kubectl</code></li>
-<li><code>jq</code></li>
-<li><code>kustomize</code> (v5.7.0+)</li>
-<li><code>gsed</code> (GNU sed) - <strong>macOS only</strong>: <code>brew install gnu-sed</code></li>
-</ul>
-</li>
-</ul>
-<h2 id="quick-start">Quick Start</h2>
-<h3 id="automated-openshift-deployment-recommended">Automated OpenShift Deployment (Recommended)</h3>
-<p>For OpenShift clusters, use the automated deployment script:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nb">export</span><span class="w"> </span><span class="nv">MAAS_REF</span><span class="o">=</span><span class="s2">&quot;main&quot;</span>
-<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>./deployment/scripts/deploy-rhoai-stable.sh
+<p>The process is simple:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>You authenticate with OpenShift → Request a token from the API → Use that token to call models
 </code></pre></div>
-<h3 id="verify-deployment">Verify Deployment</h3>
-<p>The deployment script creates the following core resources:</p>
+<hr />
+<h2 id="how-token-issuance-works">How Token Issuance Works</h2>
+<p>When you request a token, you are essentially trading your long-term OpenShift identity for a short-term, 
+purpose-built identity in the form of a Kubernetes Service Account.</p>
+<h3 id="key-concepts">Key Concepts</h3>
 <ul>
-<li><strong>Gateway</strong>: <code>maas-default-gateway</code> in <code>openshift-ingress</code> namespace</li>
-<li><strong>HTTPRoutes</strong>: <code>maas-api-route</code> in the <code>openshift-ingress</code> namespace</li>
-<li><strong>Policies</strong>: <code>AuthPolicy</code>, <code>TokenRateLimitPolicy</code>, <code>RateLimitPolicy</code>, <code>TelemetryPolicy</code></li>
-<li><strong>MaaS API</strong>: Deployment and service in <code>maas-api</code> namespace</li>
-<li><strong>Operators</strong>: Cert-manager, LWS, Red Hat Connectivity Link and Red Hat OpenShift AI.</li>
+<li><strong>Tier Namespace</strong>: The platform maintains a separate Kubernetes namespace for each subscription tier (e.g., <code>...-tier-free</code>, <code>...-tier-premium</code>). These namespaces isolate users based on their access level. </li>
+<li><strong>Service Account (SA)</strong>: When you request a token for the first time, the system creates a Service Account that represents you inside your designated tier namespace. This SA inherits all the permissions assigned to that tier.</li>
+<li><strong>Access Token</strong>: The token you receive is a standard JSON Web Token (JWT) that authenticates you as that specific Service Account. When you present this token to the gateway, the system knows your identity, your tier, and what permissions you have.</li>
+<li><strong>Token Audience</strong>: The intended recipient of your token. This is validated during authentication and must match the gateway's configuration.</li>
+<li><strong>Token Expiration</strong>: The time after which the token expires. Tokens are short-lived to reduce the risk of compromised credentials.</li>
 </ul>
-<p>Check deployment status:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="c1"># Check all namespaces</span>
-<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>kubectl<span class="w"> </span>get<span class="w"> </span>ns<span class="w"> </span><span class="p">|</span><span class="w"> </span>grep<span class="w"> </span>-E<span class="w"> </span><span class="s2">&quot;maas-api|kuadrant-system|kserve|opendatahub|redhat-ods-applications|llm&quot;</span>
-<a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a>
-<a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a><span class="c1"># Check Gateway status</span>
-<a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a>kubectl<span class="w"> </span>get<span class="w"> </span>gateway<span class="w"> </span>-n<span class="w"> </span>openshift-ingress<span class="w"> </span>maas-default-gateway
-<a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a>
-<a id="__codelineno-1-7" name="__codelineno-1-7" href="#__codelineno-1-7"></a><span class="c1"># Check policies</span>
-<a id="__codelineno-1-8" name="__codelineno-1-8" href="#__codelineno-1-8"></a>kubectl<span class="w"> </span>get<span class="w"> </span>authpolicy<span class="w"> </span>-A
-<a id="__codelineno-1-9" name="__codelineno-1-9" href="#__codelineno-1-9"></a>kubectl<span class="w"> </span>get<span class="w"> </span>tokenratelimitpolicy<span class="w"> </span>-A
-<a id="__codelineno-1-10" name="__codelineno-1-10" href="#__codelineno-1-10"></a>kubectl<span class="w"> </span>get<span class="w"> </span>ratelimitpolicy<span class="w"> </span>-A
-<a id="__codelineno-1-11" name="__codelineno-1-11" href="#__codelineno-1-11"></a>
-<a id="__codelineno-1-12" name="__codelineno-1-12" href="#__codelineno-1-12"></a><span class="c1"># Check MaaS API</span>
-<a id="__codelineno-1-13" name="__codelineno-1-13" href="#__codelineno-1-13"></a>kubectl<span class="w"> </span>get<span class="w"> </span>pods<span class="w"> </span>-n<span class="w"> </span>maas-api
-<a id="__codelineno-1-14" name="__codelineno-1-14" href="#__codelineno-1-14"></a>kubectl<span class="w"> </span>get<span class="w"> </span>svc<span class="w"> </span>-n<span class="w"> </span>maas-api
-<a id="__codelineno-1-15" name="__codelineno-1-15" href="#__codelineno-1-15"></a>
-<a id="__codelineno-1-16" name="__codelineno-1-16" href="#__codelineno-1-16"></a><span class="c1"># Check Kuadrant operators</span>
-<a id="__codelineno-1-17" name="__codelineno-1-17" href="#__codelineno-1-17"></a>kubectl<span class="w"> </span>get<span class="w"> </span>pods<span class="w"> </span>-n<span class="w"> </span>kuadrant-system
-<a id="__codelineno-1-18" name="__codelineno-1-18" href="#__codelineno-1-18"></a>
-<a id="__codelineno-1-19" name="__codelineno-1-19" href="#__codelineno-1-19"></a><span class="c1"># Check KServe (if deployed)</span>
-<a id="__codelineno-1-20" name="__codelineno-1-20" href="#__codelineno-1-20"></a>kubectl<span class="w"> </span>get<span class="w"> </span>pods<span class="w"> </span>-n<span class="w"> </span>kserve
-<a id="__codelineno-1-21" name="__codelineno-1-21" href="#__codelineno-1-21"></a>kubectl<span class="w"> </span>get<span class="w"> </span>pods<span class="w"> </span>-n<span class="w"> </span>opendatahub
-<a id="__codelineno-1-22" name="__codelineno-1-22" href="#__codelineno-1-22"></a>kubectl<span class="w"> </span>get<span class="w"> </span>pods<span class="w"> </span>-n<span class="w"> </span>redhat-ods-applications
+<h3 id="token-issuance-flow">Token Issuance Flow</h3>
+<p>This diagram illustrates the process of obtaining a token.</p>
+<pre class="mermaid"><code>sequenceDiagram
+    participant User as OpenShift User
+    participant MaaS as maas-api
+    participant K8s as Kubernetes API
+    participant TierNS as Tier Namespace&lt;br/&gt;(e.g., *-tier-premium)
+    participant Gateway
+    participant Model as Model Backend
+
+    Note over User,MaaS: Token Issuance
+    User-&gt;&gt;MaaS: 1. Authenticate with OpenShift token
+    MaaS-&gt;&gt;K8s: Validate token (TokenReview)
+    K8s--&gt;&gt;MaaS: username, groups
+    Note right of MaaS: Determine tier from&lt;br/&gt;tier-to-group-mapping
+    MaaS-&gt;&gt;K8s: Ensure tier namespace exists
+    K8s-&gt;&gt;TierNS: Create if needed
+    MaaS-&gt;&gt;TierNS: Create/get Service Account for user
+    TierNS--&gt;&gt;MaaS: SA ready
+    MaaS-&gt;&gt;K8s: Request SA token (TokenRequest)
+    K8s--&gt;&gt;MaaS: Issued token
+    MaaS--&gt;&gt;User: Return issued token
+
+    Note over User,Model: Model Access
+    User-&gt;&gt;Gateway: 3. Request with issued token
+    Gateway-&gt;&gt;K8s: Validate token (TokenReview)
+    Note right of K8s: Token from SA in&lt;br/&gt;tier namespace
+    K8s--&gt;&gt;Gateway: Valid, with groups
+    Note right of Gateway: Tier lookup,&lt;br/&gt;SAR check,&lt;br/&gt;Rate limits
+    Gateway-&gt;&gt;Model: 4. Authorized request
+    Model--&gt;&gt;Gateway: Response
+    Gateway--&gt;&gt;User: Response</code></pre>
+<hr />
+<h2 id="practical-usage">Practical Usage</h2>
+<p>For step-by-step instructions on obtaining and using tokens to access models, including practical examples and troubleshooting, see the <a href="../../user-guide/self-service-model-access/">Self-Service Model Access Guide</a>.</p>
+<p>That guide provides:
+- Complete walkthrough for getting your OpenShift token
+- How to request an access token from the API
+- Examples of making inference requests with your token
+- Troubleshooting common authentication issues</p>
+<hr />
+<h2 id="token-lifecycle-management">Token Lifecycle Management</h2>
+<p>Access tokens are ephemeral and must be managed accordingly.</p>
+<h3 id="token-expiration">Token Expiration</h3>
+<p>Tokens have a finite lifetime for security purposes:</p>
+<ul>
+<li><strong>Default lifetime</strong>: 4 hours (configurable when requesting)</li>
+<li><strong>Maximum lifetime</strong>: Determined by your Kubernetes cluster configuration</li>
+</ul>
+<p>When a token expires, any API request using it will fail with an <code>HTTP 401 Unauthorized error</code>. 
+To continue, you must request a new token using the process described above.</p>
+<p><strong>Tips:</strong>
+- For interactive use, request tokens with a lifetime that covers your session (e.g., 4h).
+- For automated scripts or applications, implement logic to refresh the token proactively before it expires.</p>
+<h3 id="token-revocation">Token Revocation</h3>
+<p>You can invalidate all active tokens associated with your user account. This is a key security feature if you believe a token has been exposed.</p>
+<p>To revoke all your tokens, send a <code>DELETE</code> request to the <code>/v1/tokens</code> endpoint.</p>
+<p><div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>curl<span class="w"> </span>-sSk<span class="w"> </span>-X<span class="w"> </span>DELETE<span class="w"> </span><span class="s2">&quot;</span><span class="si">${</span><span class="nv">MAAS_API_URL</span><span class="si">}</span><span class="s2">/v1/tokens&quot;</span><span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="w">  </span>-H<span class="w"> </span><span class="s2">&quot;Authorization: Bearer </span><span class="k">$(</span>oc<span class="w"> </span>whoami<span class="w"> </span>-t<span class="k">)</span><span class="s2">&quot;</span>
 </code></pre></div>
-<h2 id="model-setup-optional">Model Setup (Optional)</h2>
-<h3 id="deploy-sample-models-optional">Deploy Sample Models (Optional)</h3>
-<h4 id="simulator-model-cpu">Simulator Model (CPU)</h4>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="nv">PROJECT_DIR</span><span class="o">=</span><span class="k">$(</span>git<span class="w"> </span>rev-parse<span class="w"> </span>--show-toplevel<span class="k">)</span>
-<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>kustomize<span class="w"> </span>build<span class="w"> </span><span class="si">${</span><span class="nv">PROJECT_DIR</span><span class="si">}</span>/docs/samples/models/simulator/<span class="w"> </span><span class="p">|</span><span class="w"> </span>kubectl<span class="w"> </span>apply<span class="w"> </span>-f<span class="w"> </span>-
-</code></pre></div>
-<h4 id="facebook-opt-125m-model-cpu">Facebook OPT-125M Model (CPU)</h4>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="nv">PROJECT_DIR</span><span class="o">=</span><span class="k">$(</span>git<span class="w"> </span>rev-parse<span class="w"> </span>--show-toplevel<span class="k">)</span>
-<a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a>kustomize<span class="w"> </span>build<span class="w"> </span><span class="si">${</span><span class="nv">PROJECT_DIR</span><span class="si">}</span>/docs/samples/models/facebook-opt-125m-cpu/<span class="w"> </span><span class="p">|</span><span class="w"> </span>kubectl<span class="w"> </span>apply<span class="w"> </span>-f<span class="w"> </span>-
-</code></pre></div>
-<h4 id="qwen3-model-gpu-required">Qwen3 Model (GPU Required)</h4>
+This action immediately deletes your underlying Service Account, which invalidates all tokens that have ever been issued for it. 
+The Service Account will be automatically recreated the next time you request a token.</p>
 <div class="admonition warning">
-<p class="admonition-title">Warning</p>
-<p>This model requires GPU nodes with <code>nvidia.com/gpu</code> resources available in your cluster.</p>
+<p class="admonition-title">Important</p>
+<p><strong>For Platform Administrators</strong>: Admins can manually revoke a user's tokens by finding and deleting their Service Account 
+in the appropriate tier namespace (e.g., <code>&lt;instance-name&gt;-tier-premium</code>). This is an effective way to immediately cut 
+off access for a specific user in response to a security event.</p>
 </div>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="nv">PROJECT_DIR</span><span class="o">=</span><span class="k">$(</span>git<span class="w"> </span>rev-parse<span class="w"> </span>--show-toplevel<span class="k">)</span>
-<a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a>kustomize<span class="w"> </span>build<span class="w"> </span><span class="si">${</span><span class="nv">PROJECT_DIR</span><span class="si">}</span>/docs/samples/models/qwen3/<span class="w"> </span><span class="p">|</span><span class="w"> </span>kubectl<span class="w"> </span>apply<span class="w"> </span>-f<span class="w"> </span>-
-</code></pre></div>
-<h4 id="verify-model-deployment">Verify Model Deployment</h4>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="c1"># Check LLMInferenceService status</span>
-<a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a>kubectl<span class="w"> </span>get<span class="w"> </span>llminferenceservices<span class="w"> </span>-n<span class="w"> </span>llm
-<a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a>
-<a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a><span class="c1"># Check pods</span>
-<a id="__codelineno-5-5" name="__codelineno-5-5" href="#__codelineno-5-5"></a>kubectl<span class="w"> </span>get<span class="w"> </span>pods<span class="w"> </span>-n<span class="w"> </span>llm
-</code></pre></div>
-<h4 id="update-existing-models-optional">Update Existing Models (Optional)</h4>
-<p>To update an existing model, modify the <code>LLMInferenceService</code> to use the newly created <code>maas-default-gateway</code> gateway.</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a>kubectl<span class="w"> </span>patch<span class="w"> </span>llminferenceservice<span class="w"> </span>my-production-model<span class="w"> </span>-n<span class="w"> </span>llm<span class="w"> </span>--type<span class="o">=</span><span class="s1">&#39;json&#39;</span><span class="w"> </span>-p<span class="o">=</span><span class="s1">&#39;[</span>
-<a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a><span class="s1">  {</span>
-<a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a><span class="s1">    &quot;op&quot;: &quot;add&quot;,</span>
-<a id="__codelineno-6-4" name="__codelineno-6-4" href="#__codelineno-6-4"></a><span class="s1">    &quot;path&quot;: &quot;/spec/gateway/refs/-&quot;,</span>
-<a id="__codelineno-6-5" name="__codelineno-6-5" href="#__codelineno-6-5"></a><span class="s1">    &quot;value&quot;: {</span>
-<a id="__codelineno-6-6" name="__codelineno-6-6" href="#__codelineno-6-6"></a><span class="s1">      &quot;name&quot;: &quot;maas-default-gateway&quot;,</span>
-<a id="__codelineno-6-7" name="__codelineno-6-7" href="#__codelineno-6-7"></a><span class="s1">      &quot;namespace&quot;: &quot;openshift-ingress&quot;</span>
-<a id="__codelineno-6-8" name="__codelineno-6-8" href="#__codelineno-6-8"></a><span class="s1">    }</span>
-<a id="__codelineno-6-9" name="__codelineno-6-9" href="#__codelineno-6-9"></a><span class="s1">  }</span>
-<a id="__codelineno-6-10" name="__codelineno-6-10" href="#__codelineno-6-10"></a><span class="s1">]&#39;</span>
-</code></pre></div>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="nt">apiVersion</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">serving.kserve.io/v1alpha1</span>
-<a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a><span class="nt">kind</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">LLMInferenceService</span>
-<a id="__codelineno-7-3" name="__codelineno-7-3" href="#__codelineno-7-3"></a><span class="nt">metadata</span><span class="p">:</span>
-<a id="__codelineno-7-4" name="__codelineno-7-4" href="#__codelineno-7-4"></a><span class="w">  </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">my-production-model</span>
-<a id="__codelineno-7-5" name="__codelineno-7-5" href="#__codelineno-7-5"></a><span class="nt">spec</span><span class="p">:</span>
-<a id="__codelineno-7-6" name="__codelineno-7-6" href="#__codelineno-7-6"></a><span class="w">  </span><span class="nt">gateway</span><span class="p">:</span>
-<a id="__codelineno-7-7" name="__codelineno-7-7" href="#__codelineno-7-7"></a><span class="w">    </span><span class="nt">refs</span><span class="p">:</span>
-<a id="__codelineno-7-8" name="__codelineno-7-8" href="#__codelineno-7-8"></a><span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">maas-default-gateway</span>
-<a id="__codelineno-7-9" name="__codelineno-7-9" href="#__codelineno-7-9"></a><span class="w">        </span><span class="nt">namespace</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">openshift-ingress</span>
-</code></pre></div>
-<h2 id="next-steps">Next Steps</h2>
-<p>After installation, proceed to <a href="../install/validation/">Validation</a> to test and verify your deployment.</p>
+<hr />
+<h2 id="frequently-asked-questions-faq">Frequently Asked Questions (FAQ)</h2>
+<p><strong>Q: My tier is wrong or shows as "free". How do I fix it?</strong></p>
+<p>A: Your tier is determined by your group membership in OpenShift. Contact your platform administrator to ensure you 
+are in the correct user group, which should be mapped to your desired tier in the <a href="../tier-configuration/">tier mapping configuration</a>.</p>
+<hr />
+<p><strong>Q: How long should my tokens be valid for?</strong></p>
+<p>A: It's a balance of security and convenience. For interactive command-line use, 1-8 hours is common. For applications, request shorter-lived tokens (e.g., 15-60 minutes) and refresh them automatically.</p>
+<hr />
+<p><strong>Q: Can I have multiple active tokens at once?</strong></p>
+<p>A: Yes. Each call to the <code>/v1/tokens</code> endpoint issues a new, independent token. All of them will be valid until they expire or are revoked.</p>
+<hr />
+<p><strong>Q: What happens if the <code>maas-api</code> service is down?</strong></p>
+<p>A: You will not be able to issue <em>new</em> tokens. However, any existing, non-expired tokens will continue to work for calling models, as the gateway validates them directly with the Kubernetes API.</p>
+<hr />
+<p><strong>Q: Can I use one token to access multiple different models?</strong></p>
+<p>A: Yes. Your token grants you access based on your tier's RBAC permissions. If your tier is authorized to use multiple models, a single token will work for all of them.</p>
+<hr />
+<h2 id="related-documentation">Related Documentation</h2>
+<ul>
+<li><strong><a href="../tier-configuration/">Configuring Subscription Tiers</a></strong>: For operators - tier setup, RBAC, and rate limiting configuration</li>
+</ul>
+<hr />
 
 
 
@@ -1790,7 +1787,7 @@
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="December 3, 2025 16:52:07 UTC">December 3, 2025</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="November 21, 2025 16:44:09 UTC">November 21, 2025</span>
   </span>
 
     
@@ -1800,7 +1797,7 @@
     <span class="md-icon" title="Created">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M14.47 15.08 11 13V7h1.5v5.25l3.08 1.83c-.41.28-.79.62-1.11 1m-1.39 4.84c-.36.05-.71.08-1.08.08-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8c0 .37-.03.72-.08 1.08.69.1 1.33.32 1.92.64.1-.56.16-1.13.16-1.72 0-5.5-4.5-10-10-10S2 6.5 2 12s4.47 10 10 10c.59 0 1.16-.06 1.72-.16-.32-.59-.54-1.23-.64-1.92M18 15v3h-3v2h3v3h2v-3h3v-2h-3v-3z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="October 30, 2025 20:53:11 UTC">October 30, 2025</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="November 21, 2025 16:44:09 UTC">November 21, 2025</span>
   </span>
 
     
@@ -1855,10 +1852,10 @@
     
       
       
-      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["navigation.tabs", "navigation.sections", "navigation.expand", "navigation.top", "search.highlight", "search.share", "content.code.copy", "content.code.annotate", "search.suggest", "search.boost", "navigation.instant"], "search": "../assets/javascripts/workers/search.7a47a382.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"default": "latest", "provider": "mike"}}</script>
+      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["navigation.tabs", "navigation.sections", "navigation.expand", "navigation.top", "search.highlight", "search.share", "content.code.copy", "content.code.annotate", "search.suggest", "search.boost", "navigation.instant"], "search": "../../assets/javascripts/workers/search.7a47a382.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"default": "latest", "provider": "mike"}}</script>
     
     
-      <script src="../assets/javascripts/bundle.e71a0d61.min.js"></script>
+      <script src="../../assets/javascripts/bundle.e71a0d61.min.js"></script>
       
     
   </body>
