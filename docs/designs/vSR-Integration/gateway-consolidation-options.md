@@ -2,7 +2,7 @@
 
 **Document**: Deployment Architecture Patterns  
 **Date**: December 2025  
-**Related**: [Main Design Proposal](design-proposal-vsr-maas-integration.md)
+**Related**: [Main Design Proposal](README.md)
 
 ## Overview
 

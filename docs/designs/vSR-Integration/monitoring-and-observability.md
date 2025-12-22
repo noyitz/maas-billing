@@ -2,7 +2,7 @@
 
 **Document**: Observability Strategy for Integrated vSR-MaaS Platform  
 **Date**: December 2025  
-**Related**: [Main Design Proposal](design-proposal-vsr-maas-integration.md)
+**Related**: [Main Design Proposal](README.md)
 
 ## Overview
 
