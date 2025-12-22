@@ -552,14 +552,6 @@ X-Category: mathematics
 
 This Authorization-First flow ensures enterprise-grade security while enabling the intelligent routing capabilities of vSR, creating a robust and scalable foundation for the integrated platform.
 
-For detailed authorization configuration and code examples, see:
-**[📋 Implementation Examples](implementation-examples.md)**
-
-This document contains:
-- Enhanced AuthPolicy configuration for semantic routing permissions
-- Go implementation of AuthorizedOpenAIRouter with tier-aware model selection
-- MaaS API extensions for model capabilities lookup
-- RBAC and ServiceAccount token configurations
 
 ## 5. Implementation Architecture Options
 
