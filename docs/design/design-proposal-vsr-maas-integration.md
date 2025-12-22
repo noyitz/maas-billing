@@ -189,7 +189,110 @@ graph TB
     RBAC --> ModelN
 ```
 
-## 2. Comparative Analysis: Order of Operations
+## 2. Authorization (AuthZ) Analysis
+
+### 2.1 MaaS Authorization Architecture
+
+MaaS implements a comprehensive authorization system using Authorino with multi-layered access control:
+
+```mermaid
+sequenceDiagram
+    participant Client
+    participant Gateway as maas-default-gateway
+    participant Authorino
+    participant MaaSAPI as MaaS API
+    participant K8sAPI as Kubernetes API
+    participant Model as LLM Model
+    
+    Client->>Gateway: Request + Service Account Token
+    Gateway->>Authorino: Apply AuthPolicy
+    
+    Note over Authorino: Phase 1 - Authentication
+    Authorino->>K8sAPI: TokenReview (validate SA token)
+    K8sAPI-->>Authorino: User identity + groups
+    
+    Note over Authorino: Phase 2 - Tier Resolution  
+    Authorino->>MaaSAPI: POST /v1/tiers/lookup<br/>{"groups": [...]}
+    MaaSAPI-->>Authorino: {"tier": "premium"}
+    
+    Note over Authorino: Phase 3 - RBAC Authorization
+    Authorino->>K8sAPI: SubjectAccessReview<br/>Can user POST to specific model?
+    K8sAPI-->>Authorino: Allow/Deny
+    
+    Authorino-->>Gateway: Auth Success<br/>Headers: userid, tier
+    Gateway->>Model: Forward request with auth context
+```
+
+**Key Authorization Components:**
+- **Authentication**: Kubernetes TokenReview validates Service Account tokens
+- **Tier Resolution**: MaaS API maps user groups to subscription tiers (free/premium/enterprise)
+- **RBAC Authorization**: Kubernetes SubjectAccessReview checks model-specific permissions
+- **Context Injection**: Auth metadata (userid, tier) added to request headers
+
+### 2.2 vSR Authorization Architecture 
+
+vSR currently operates as a pure routing layer without built-in authorization:
+
+```mermaid
+sequenceDiagram
+    participant Client
+    participant Envoy as Envoy Proxy
+    participant ExtProc as vSR ExtProc
+    participant Model as Selected Model
+    
+    Client->>Envoy: Raw request (no auth validation)
+    Envoy->>ExtProc: Forward for semantic processing
+    
+    Note over ExtProc: Semantic Classification
+    ExtProc->>ExtProc: Category classification
+    ExtProc->>ExtProc: PII detection (content-based)
+    ExtProc->>ExtProc: Model selection
+    
+    ExtProc-->>Envoy: Routing headers<br/>x-selected-model: llama3-8b
+    Envoy->>Model: Route to selected model
+```
+
+**Key Characteristics:**
+- **No Built-in AuthZ**: vSR assumes requests are pre-authorized
+- **Content-based Security**: PII detection and jailbreak prevention based on request content
+- **Model Selection**: Intelligent routing based on semantic analysis
+- **Stateless Design**: No user context or session management
+
+### 2.3 Proposed Authorization-First Flow
+
+**New Architecture: Auth → vSR → MaaS Rate Limiting**
+
+```mermaid
+sequenceDiagram
+    participant Client
+    participant Gateway as maas-default-gateway  
+    participant Authorino
+    participant MaaSAPI as MaaS API
+    participant vSR as vSR ExtProc
+    participant Limitador
+    participant Model
+    
+    Note over Client,Model: Phase 1: Authentication & Authorization
+    Client->>Gateway: Request + Service Account Token
+    Gateway->>Authorino: Apply AuthPolicy
+    Authorino->>MaaSAPI: Tier lookup + RBAC check
+    MaaSAPI-->>Authorino: User authorized for semantic routing
+    Authorino-->>Gateway: Auth Success + tier context
+    
+    Note over Client,Model: Phase 2: Semantic Routing
+    Gateway->>vSR: Forward with auth headers<br/>X-User-ID, X-Tier, X-Groups
+    vSR->>vSR: Semantic classification
+    vSR->>vSR: Model selection based on category + tier
+    vSR-->>Gateway: Routing decision<br/>X-Selected-Model, X-Model-Cost
+    
+    Note over Client,Model: Phase 3: Model-Aware Rate Limiting
+    Gateway->>Limitador: Apply rate limits with model context
+    Limitador->>Limitador: Check tier + model-specific limits
+    Limitador-->>Gateway: Rate limit decision
+    Gateway->>Model: Execute on selected model
+```
+
+## 3. Comparative Analysis: Order of Operations
 
 ### Option A: MaaS before vSR (MaaS → vSR)
 
@@ -253,11 +356,209 @@ sequenceDiagram
 | **✅ Semantic Caching Benefits**: Early caching can prevent downstream processing entirely | **❌ Tier Resolution Complexity**: vSR needs access to user tier information for proper model selection |
 | **✅ Optimal Tool Selection**: Tools can be selected before rate limiting, improving accuracy | **❌ Architectural Disruption**: Requires significant changes to existing MaaS auth flow |
 
-## 3. Recommended Architecture: Hybrid Approach
+### 2.4 Enhanced Authorization Policy Configuration
 
-### 3.1 Two-Stage Rate Limiting Design
+To support the Authorization-First flow, we need an enhanced AuthPolicy that grants semantic routing access:
 
-To maximize benefits while minimizing risks, we propose a **two-stage rate limiting approach**:
+```yaml
+# Enhanced AuthPolicy for vSR integration
+apiVersion: kuadrant.io/v1
+kind: AuthPolicy
+metadata:
+  name: enhanced-gateway-auth-policy
+  namespace: openshift-ingress
+spec:
+  targetRef:
+    group: gateway.networking.k8s.io
+    kind: Gateway
+    name: maas-default-gateway
+  rules:
+    metadata:
+      # Tier resolution (existing)
+      matchedTier:
+        http:
+          url: http://maas-api.maas-api.svc.cluster.local:8080/v1/tiers/lookup
+          contentType: application/json
+          method: POST
+          body:
+            expression: '{ "groups": auth.identity.user.groups }'
+        cache:
+          key:
+            selector: auth.identity.user.username
+          ttl: 300
+      
+      # New: Model capabilities lookup
+      allowedModels:
+        http:
+          url: http://maas-api.maas-api.svc.cluster.local:8080/v1/models/allowed
+          contentType: application/json  
+          method: POST
+          body:
+            expression: '{ "tier": auth.metadata.matchedTier["tier"], "groups": auth.identity.user.groups }'
+        cache:
+          key:
+            selector: "{auth.identity.user.username}:{auth.metadata.matchedTier.tier}"
+          ttl: 600
+            
+    authentication:
+      service-accounts:
+        kubernetesTokenReview:
+          audiences:
+            - maas-default-gateway-sa
+        defaults:
+          userid:
+            expression: 'auth.identity.user.username.split(":")[3]'
+        cache:
+          key:
+            selector: context.request.http.headers.authorization.@case:lower
+          ttl: 600
+          
+    authorization:
+      # Basic tier access (existing)
+      tier-access:
+        cache:
+          key:
+            selector: "{auth.identity.user.username}:{request.path}"
+          ttl: 60
+        kubernetesSubjectAccessReview:
+          user:
+            expression: auth.identity.user.username
+          authorizationGroups:
+            expression: auth.identity.user.groups
+          resourceAttributes:
+            group:
+              value: serving.kserve.io
+            resource:
+              value: llminferenceservices
+            verb:
+              value: post
+      
+      # New: Semantic routing access control
+      semantic-routing-access:
+        cache:
+          key:
+            selector: "{auth.identity.user.username}:semantic-routing"
+          ttl: 300
+        kubernetesSubjectAccessReview:
+          user:
+            expression: auth.identity.user.username
+          authorizationGroups:
+            expression: auth.identity.user.groups
+          resourceAttributes:
+            group:
+              value: semantic-router.vllm.ai
+            resource:
+              value: semanticRouting
+            namespace:
+              value: default
+            verb:
+              value: use
+              
+    response:
+      success:
+        filters:
+          identity:
+            json:
+              properties:
+                userid:
+                  expression: auth.identity.userid
+                tier:
+                  expression: auth.metadata.matchedTier["tier"]
+                allowedModels:
+                  expression: auth.metadata.allowedModels["models"]
+                maxCostPerRequest:
+                  expression: auth.metadata.matchedTier["maxCostPerRequest"]
+```
+
+### 2.5 vSR ExtProc Enhancement for Authorization Context
+
+vSR needs to be enhanced to understand and respect authorization context:
+
+```go
+// Enhanced vSR ExtProc with authorization awareness
+type AuthorizedOpenAIRouter struct {
+    *openai.OpenAIRouter
+    
+    // Authorization context processors
+    tierProcessor     TierProcessor
+    modelValidator    ModelValidator
+    budgetTracker     BudgetTracker
+}
+
+func (r *AuthorizedOpenAIRouter) ProcessRequestHeaders(headers map[string]string) (*RoutingDecision, error) {
+    // Extract authorization context
+    authContext := &AuthContext{
+        UserID:       headers["X-User-ID"],
+        Tier:         headers["X-Tier"], 
+        AllowedModels: parseModels(headers["X-Allowed-Models"]),
+        MaxCost:      parseFloat(headers["X-Max-Cost-Per-Request"]),
+    }
+    
+    // Validate user has semantic routing access
+    if !r.hasSemanticRoutingPermission(authContext) {
+        return nil, errors.New("user not authorized for semantic routing")
+    }
+    
+    // Perform semantic classification with tier context
+    category, confidence, err := r.Classifier.ClassifyWithTier(body, authContext.Tier)
+    if err != nil {
+        return nil, err
+    }
+    
+    // Select model based on category + tier constraints
+    selectedModel, cost, err := r.selectModelForTier(category, authContext)
+    if err != nil {
+        return nil, err
+    }
+    
+    return &RoutingDecision{
+        Category:      category,
+        SelectedModel: selectedModel,
+        EstimatedCost: cost,
+        UserContext:   authContext,
+    }, nil
+}
+
+func (r *AuthorizedOpenAIRouter) selectModelForTier(category string, auth *AuthContext) (string, float64, error) {
+    // Get models for category
+    candidates := r.getModelsForCategory(category)
+    
+    // Filter by user's allowed models
+    allowedCandidates := r.filterByAllowedModels(candidates, auth.AllowedModels)
+    if len(allowedCandidates) == 0 {
+        return "", 0, errors.New("no allowed models for category")
+    }
+    
+    // Select best model within cost budget
+    for _, model := range allowedCandidates {
+        if model.CostPerRequest <= auth.MaxCost {
+            return model.Name, model.CostPerRequest, nil
+        }
+    }
+    
+    // Fallback to cheapest allowed model
+    return allowedCandidates[len(allowedCandidates)-1].Name, allowedCandidates[len(allowedCandidates)-1].CostPerRequest, nil
+}
+```
+
+## 4. Recommended Architecture: Authorization-First Hybrid Approach
+
+Based on the authorization analysis above, we recommend the **Authorization-First flow**: 
+**Auth → vSR → MaaS Rate Limiting**
+
+This approach provides the best balance of security, performance, and operational simplicity.
+
+### 4.1 Architecture Benefits
+
+| **Benefit** | **Description** |
+|-------------|-----------------|
+| **✅ Security First** | Full authentication and authorization before any semantic processing |
+| **✅ Tier-Aware Routing** | vSR can make intelligent model selections based on user tier and permissions |
+| **✅ Model-Specific Rate Limiting** | Limitador enforces rate limits after knowing the exact model and cost |
+| **✅ Operational Simplicity** | MaaS focuses on rate limiting; vSR focuses on intelligent routing |
+| **✅ Enhanced Fallbacks** | Can downgrade models based on both permissions and rate limits |
+
+### 4.2 Enhanced Rate Limiting Design
 
 ```mermaid
 graph TB
@@ -286,23 +587,23 @@ graph TB
     MaaS --> Execute
 ```
 
-### 3.2 Implementation Strategy
+### 4.3 Implementation Strategy
 
-#### Phase 1: Security-First Integration
+#### Phase 1: Enhanced Authorization Integration
 
-1. **Maintain MaaS Entry Point**: All requests continue to enter through maas-default-gateway
-2. **Enhanced Token Context**: Extend MaaS tokens to include model preferences and budget allocations
-3. **vSR as Post-Auth Service**: Integrate vSR after authentication but before final model routing
+1. **Enhanced AuthPolicy**: Deploy the new AuthPolicy with semantic routing permissions and model allowlists
+2. **MaaS API Extensions**: Add `/v1/models/allowed` endpoint to return tier-based model permissions
+3. **vSR Authorization Context**: Enhance vSR ExtProc to understand and respect authorization headers
 
 #### Phase 2: Intelligent Rate Limiting
 
-1. **Dynamic Policy Generation**: Create rate limiting policies that consider both tier and model selection
+1. **Model-Aware Rate Limiting**: Deploy enhanced Limitador policies that consider selected models and costs
 2. **Real-time Model Availability**: Implement circuit breakers and health checks for model endpoints
 3. **Cost-Aware Throttling**: Implement budget-based rate limiting that considers model computational costs
 
-## 4. Adaptive Throttling & Model Fallbacks
+## 5. Adaptive Throttling & Model Fallbacks
 
-### 4.1 Fallback Decision Tree
+### 5.1 Fallback Decision Tree
 
 ```mermaid
 graph TD
@@ -333,7 +634,7 @@ graph TD
     ReturnCached --> Success
 ```
 
-### 4.2 Model Hierarchy Configuration
+### 5.2 Model Hierarchy Configuration
 
 ```yaml
 # Model fallback hierarchy configuration
@@ -372,7 +673,7 @@ model_hierarchy:
     cache_eligible: false  # Sensitive enterprise requests
 ```
 
-### 4.3 Budget-Aware Rate Limiting
+### 5.3 Budget-Aware Rate Limiting
 
 ```yaml
 # Enhanced rate limiting with budget awareness
@@ -431,9 +732,9 @@ spec:
       fallback_policy: "best_effort"
 ```
 
-## 5. Dynamic Rate Limiting & Back-and-Forth Flow
+## 6. Dynamic Rate Limiting & Back-and-Forth Flow
 
-### 5.1 Enhanced Rate Limiting Workflow
+### 6.1 Enhanced Rate Limiting Workflow
 
 ```mermaid
 sequenceDiagram
