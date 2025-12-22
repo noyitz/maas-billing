@@ -74,6 +74,34 @@ graph TB
 - **Limitador**: Rate limiting and quota enforcement
 - **RHOAI Model Serving**: Backend LLM model execution platform
 
+#### Model Inference Request Flow
+
+```mermaid
+sequenceDiagram
+    participant Client
+    participant GatewayAPI
+    participant Kuadrant
+    participant Authorino
+    participant Limitador
+    participant AuthPolicy
+    participant RateLimitPolicy
+    participant LLMInferenceService
+    
+    Client->>GatewayAPI: Inference Request + Service Account Token
+    GatewayAPI->>Kuadrant: Applying Policies
+    Kuadrant->>Authorino: Validate Service Account Token
+    Authorino->>AuthPolicy: Check Token Validity
+    AuthPolicy-->>Authorino: Token Valid + Tier Info
+    Authorino-->>Kuadrant: Authentication Success
+    Kuadrant->>Limitador: Check Rate Limits
+    Limitador->>RateLimitPolicy: Apply Tier-based Limits
+    RateLimitPolicy-->>Limitador: Rate Limit Status
+    Limitador-->>Kuadrant: Rate Check Result
+    Kuadrant-->>GatewayAPI: Policy Decision (Allow/Deny)
+    GatewayAPI ->> LLMInferenceService: Forward Request
+    LLMInferenceService-->>Client: Response
+```
+
 ### Current vSR Architecture
 
 The vSR system implements a sophisticated Mixture-of-Models architecture using Envoy Proxy with External Processor integration:
@@ -135,6 +163,46 @@ graph TB
 - **ModernBERT Classifiers**: Multi-task classification for category detection, PII scanning, and jailbreak prevention
 - **Semantic Cache**: Performance optimization with similarity-based caching
 - **Tool Selection**: Automatic optimization to reduce token usage and improve accuracy
+
+#### Request Processing Pipeline
+
+```mermaid
+sequenceDiagram
+    participant Client
+    participant Envoy
+    participant ExtProc as vSR ExtProc
+    participant Cache as Semantic Cache
+    participant PII as PII Detector
+    participant Guard as Jailbreak Guard
+    participant Classifier as Category Classifier
+    participant Model as Selected Model
+    
+    Client->>Envoy: HTTP Request
+    Envoy->>ExtProc: ExtProc Request (Headers + Body)
+    
+    ExtProc->>Cache: Check semantic cache
+    
+    alt Cache Hit
+        Cache->>ExtProc: Cached response
+        ExtProc->>Envoy: Return cached result
+    else Cache Miss
+        ExtProc->>PII: Scan for PII
+        PII->>ExtProc: PII status
+        ExtProc->>Guard: Check for jailbreak
+        Guard->>ExtProc: Safety status
+        ExtProc->>Classifier: Classify intent
+        Classifier->>ExtProc: Category + confidence
+        ExtProc->>ExtProc: Select optimal model
+        ExtProc->>Envoy: Set routing headers<br/>x-selected-model
+        Envoy->>Model: Route to selected model
+        Model->>Envoy: Model response
+        Envoy->>ExtProc: Response processing
+        ExtProc->>Cache: Store semantic representation
+        ExtProc->>Envoy: Final response
+    end
+    
+    Envoy->>Client: HTTP Response
+```
 
 
 ## 2. Authorization (AuthZ) Analysis
@@ -206,40 +274,6 @@ sequenceDiagram
 - **Model Selection**: Intelligent routing based on semantic analysis
 - **Stateless Design**: No user context or session management
 
-### 2.3 Proposed Authorization-First Flow
-
-**New Architecture: Auth → vSR → MaaS Rate Limiting**
-
-```mermaid
-sequenceDiagram
-    participant Client
-    participant Gateway as maas-default-gateway  
-    participant Authorino
-    participant MaaSAPI as MaaS API
-    participant vSR as vSR ExtProc
-    participant Limitador
-    participant Model
-    
-    Note over Client,Model: Phase 1: Authentication & Authorization
-    Client->>Gateway: Request + Service Account Token
-    Gateway->>Authorino: Apply AuthPolicy
-    Authorino->>MaaSAPI: Tier lookup + RBAC check
-    MaaSAPI-->>Authorino: User authorized for semantic routing
-    Authorino-->>Gateway: Auth Success + tier context
-    
-    Note over Client,Model: Phase 2: Semantic Routing
-    Gateway->>vSR: Forward with auth headers<br/>X-User-ID, X-Tier, X-Groups
-    vSR->>vSR: Semantic classification
-    vSR->>vSR: Model selection based on category + tier
-    vSR-->>Gateway: Routing decision<br/>X-Selected-Model, X-Model-Cost
-    
-    Note over Client,Model: Phase 3: Model-Aware Rate Limiting
-    Gateway->>Limitador: Apply rate limits with model context
-    Limitador->>Limitador: Check tier + model-specific limits
-    Limitador-->>Gateway: Rate limit decision
-    Gateway->>Model: Execute on selected model
-```
-
 ## 3. Comparative Analysis: Order of Operations
 
 ### Option A: MaaS before vSR (MaaS → vSR)
@@ -304,7 +338,43 @@ sequenceDiagram
 | **✅ Semantic Caching Benefits**: Early caching can prevent downstream processing entirely | **❌ Tier Resolution Complexity**: vSR needs access to user tier information for proper model selection |
 | **✅ Optimal Tool Selection**: Tools can be selected before rate limiting, improving accuracy | **❌ Architectural Disruption**: Requires significant changes to existing MaaS auth flow |
 
-### 2.4 Proposed Integrated Architecture
+## 4. Proposed Solution
+
+Based on the analysis of both options, we recommend the **Authorization-First Integrated Architecture** that combines the security benefits of Option A with the intelligent routing capabilities of Option B.
+
+### 4.1 Recommended Flow: Auth → vSR → MaaS Rate Limiting
+
+```mermaid
+sequenceDiagram
+    participant Client
+    participant Gateway as maas-default-gateway  
+    participant Authorino
+    participant MaaSAPI as MaaS API
+    participant vSR as vSR ExtProc
+    participant Limitador
+    participant Model
+    
+    Note over Client,Model: Phase 1: Authentication & Authorization
+    Client->>Gateway: Request + Service Account Token
+    Gateway->>Authorino: Apply AuthPolicy
+    Authorino->>MaaSAPI: Tier lookup + RBAC check
+    MaaSAPI-->>Authorino: User authorized for semantic routing
+    Authorino-->>Gateway: Auth Success + tier context
+    
+    Note over Client,Model: Phase 2: Semantic Routing
+    Gateway->>vSR: Forward with auth headers<br/>X-User-ID, X-Tier, X-Groups
+    vSR->>vSR: Semantic classification
+    vSR->>vSR: Model selection based on category + tier
+    vSR-->>Gateway: Routing decision<br/>X-Selected-Model, X-Model-Cost
+    
+    Note over Client,Model: Phase 3: Model-Aware Rate Limiting
+    Gateway->>Limitador: Apply rate limits with model context
+    Limitador->>Limitador: Check tier + model-specific limits
+    Limitador-->>Gateway: Rate limit decision
+    Gateway->>Model: Execute on selected model
+```
+
+### 4.2 Integrated Architecture
 
 Based on the analysis of both options, we propose the **Authorization-First Integrated Architecture** that combines the security benefits of Option A with the intelligent routing capabilities of Option B:
 
