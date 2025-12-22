@@ -435,208 +435,16 @@ graph TB
 - **Model-Aware Rate Limiting**: Rate limits applied after model selection with cost awareness
 - **Clear Separation**: Each component focuses on its core responsibility
 
-### 2.5 Enhanced Authorization Policy Configuration
+For detailed authorization configuration and code examples, see:
+**[📋 Implementation Examples](implementation-examples.md)**
 
-To support the Authorization-First flow, we need an enhanced AuthPolicy that grants semantic routing access:
+This document contains:
+- Enhanced AuthPolicy configuration for semantic routing permissions
+- Go implementation of AuthorizedOpenAIRouter with tier-aware model selection
+- MaaS API extensions for model capabilities lookup
+- RBAC and ServiceAccount token configurations
 
-```yaml
-# Enhanced AuthPolicy for vSR integration
-apiVersion: kuadrant.io/v1
-kind: AuthPolicy
-metadata:
-  name: enhanced-gateway-auth-policy
-  namespace: openshift-ingress
-spec:
-  targetRef:
-    group: gateway.networking.k8s.io
-    kind: Gateway
-    name: maas-default-gateway
-  rules:
-    metadata:
-      # Tier resolution (existing)
-      matchedTier:
-        http:
-          url: http://maas-api.maas-api.svc.cluster.local:8080/v1/tiers/lookup
-          contentType: application/json
-          method: POST
-          body:
-            expression: '{ "groups": auth.identity.user.groups }'
-        cache:
-          key:
-            selector: auth.identity.user.username
-          ttl: 300
-      
-      # New: Model capabilities lookup
-      allowedModels:
-        http:
-          url: http://maas-api.maas-api.svc.cluster.local:8080/v1/models/allowed
-          contentType: application/json  
-          method: POST
-          body:
-            expression: '{ "tier": auth.metadata.matchedTier["tier"], "groups": auth.identity.user.groups }'
-        cache:
-          key:
-            selector: "{auth.identity.user.username}:{auth.metadata.matchedTier.tier}"
-          ttl: 600
-            
-    authentication:
-      service-accounts:
-        kubernetesTokenReview:
-          audiences:
-            - maas-default-gateway-sa
-        defaults:
-          userid:
-            expression: 'auth.identity.user.username.split(":")[3]'
-        cache:
-          key:
-            selector: context.request.http.headers.authorization.@case:lower
-          ttl: 600
-          
-    authorization:
-      # Basic tier access (existing)
-      tier-access:
-        cache:
-          key:
-            selector: "{auth.identity.user.username}:{request.path}"
-          ttl: 60
-        kubernetesSubjectAccessReview:
-          user:
-            expression: auth.identity.user.username
-          authorizationGroups:
-            expression: auth.identity.user.groups
-          resourceAttributes:
-            group:
-              value: serving.kserve.io
-            resource:
-              value: llminferenceservices
-            verb:
-              value: post
-      
-      # New: Semantic routing access control
-      semantic-routing-access:
-        cache:
-          key:
-            selector: "{auth.identity.user.username}:semantic-routing"
-          ttl: 300
-        kubernetesSubjectAccessReview:
-          user:
-            expression: auth.identity.user.username
-          authorizationGroups:
-            expression: auth.identity.user.groups
-          resourceAttributes:
-            group:
-              value: semantic-router.vllm.ai
-            resource:
-              value: semanticRouting
-            namespace:
-              value: default
-            verb:
-              value: use
-              
-    response:
-      success:
-        filters:
-          identity:
-            json:
-              properties:
-                userid:
-                  expression: auth.identity.userid
-                tier:
-                  expression: auth.metadata.matchedTier["tier"]
-                allowedModels:
-                  expression: auth.metadata.allowedModels["models"]
-                maxCostPerRequest:
-                  expression: auth.metadata.matchedTier["maxCostPerRequest"]
-```
-
-### 2.6 vSR ExtProc Enhancement for Authorization Context
-
-vSR needs to be enhanced to understand and respect authorization context:
-
-```go
-// Enhanced vSR ExtProc with authorization awareness
-type AuthorizedOpenAIRouter struct {
-    *openai.OpenAIRouter
-    
-    // Authorization context processors
-    tierProcessor     TierProcessor
-    modelValidator    ModelValidator
-    budgetTracker     BudgetTracker
-}
-
-func (r *AuthorizedOpenAIRouter) ProcessRequestHeaders(headers map[string]string) (*RoutingDecision, error) {
-    // Extract authorization context
-    authContext := &AuthContext{
-        UserID:       headers["X-User-ID"],
-        Tier:         headers["X-Tier"], 
-        AllowedModels: parseModels(headers["X-Allowed-Models"]),
-        MaxCost:      parseFloat(headers["X-Max-Cost-Per-Request"]),
-    }
-    
-    // Validate user has semantic routing access
-    if !r.hasSemanticRoutingPermission(authContext) {
-        return nil, errors.New("user not authorized for semantic routing")
-    }
-    
-    // Perform semantic classification with tier context
-    category, confidence, err := r.Classifier.ClassifyWithTier(body, authContext.Tier)
-    if err != nil {
-        return nil, err
-    }
-    
-    // Select model based on category + tier constraints
-    selectedModel, cost, err := r.selectModelForTier(category, authContext)
-    if err != nil {
-        return nil, err
-    }
-    
-    return &RoutingDecision{
-        Category:      category,
-        SelectedModel: selectedModel,
-        EstimatedCost: cost,
-        UserContext:   authContext,
-    }, nil
-}
-
-func (r *AuthorizedOpenAIRouter) selectModelForTier(category string, auth *AuthContext) (string, float64, error) {
-    // Get models for category
-    candidates := r.getModelsForCategory(category)
-    
-    // Filter by user's allowed models
-    allowedCandidates := r.filterByAllowedModels(candidates, auth.AllowedModels)
-    if len(allowedCandidates) == 0 {
-        return "", 0, errors.New("no allowed models for category")
-    }
-    
-    // Select best model within cost budget
-    for _, model := range allowedCandidates {
-        if model.CostPerRequest <= auth.MaxCost {
-            return model.Name, model.CostPerRequest, nil
-        }
-    }
-    
-    // Fallback to cheapest allowed model
-    return allowedCandidates[len(allowedCandidates)-1].Name, allowedCandidates[len(allowedCandidates)-1].CostPerRequest, nil
-}
-```
-
-## 5. Advanced Use Cases and Implementation Details
-
-The core design proposal above provides the foundation for the integrated vSR-MaaS platform. The following sections detail advanced use cases, deployment options, and operational considerations.
-
-### 5.1 Adaptive Throttling & Model Fallbacks
-
-For detailed implementation of intelligent model fallbacks with cost-aware throttling, see:
-**[📋 Adaptive Throttling & Model Fallbacks](adaptive-throttling-and-model-fallbacks.md)**
-
-This document covers:
-- Enterprise-grade fallback decision trees with budget constraints
-- Component implementation details for budget tracking and circuit breakers
-- Complete sequence diagrams for fallback scenarios
-- Configuration examples for model hierarchy and rate limiting policies
-- Monitoring and alerting strategies for adaptive systems
-
-### 5.2 Gateway Consolidation Options
+## 5. Implementation Architecture Options
 
 For comprehensive analysis of deployment architecture patterns, see:
 **[📋 Gateway Consolidation Options](gateway-consolidation-options.md)**
@@ -648,7 +456,23 @@ This document analyzes:
 - Implementation examples for each architecture
 - Recommendation matrix and migration strategies
 
-### 5.3 Monitoring and Observability
+## 6. Advanced Use Cases and Implementation Details
+
+The core design proposal above provides the foundation for the integrated vSR-MaaS platform. The following sections detail advanced use cases, deployment options, and operational considerations.
+
+### 6.1 Adaptive Throttling & Model Fallbacks
+
+For detailed implementation of intelligent model fallbacks with cost-aware throttling, see:
+**[📋 Adaptive Throttling & Model Fallbacks](adaptive-throttling-and-model-fallbacks.md)**
+
+This document covers:
+- Enterprise-grade fallback decision trees with budget constraints
+- Component implementation details for budget tracking and circuit breakers
+- Complete sequence diagrams for fallback scenarios
+- Configuration examples for model hierarchy and rate limiting policies
+- Monitoring and alerting strategies for adaptive systems
+
+### 6.2 Monitoring and Observability
 
 For complete observability strategy and implementation, see:
 **[📋 Monitoring and Observability](monitoring-and-observability.md)**
@@ -660,42 +484,15 @@ This document details:
 - Business intelligence dashboards and alerting strategies
 - SLIs/SLOs and error budget management
 
-## 6. Security Considerations
+## 7. Security Considerations
 
-### 6.1 PII Protection in Integrated Flow
+For comprehensive security analysis and implementation details, see:
+**[📋 Security Considerations](security-considerations.md)**
 
-The integrated architecture maintains robust PII protection through multiple layers:
+This document covers:
+- PII protection strategies in the integrated flow
+- Authorization flow security controls
+- Token scope validation and audit logging
+- Data isolation and tenant boundaries
+- Security best practices for semantic routing
 
-```mermaid
-graph TB
-    Request[Incoming Request] --> Auth[Authentication]
-    Auth --> PIICheck{PII Detection<br/>by vSR}
-    PIICheck -->|PII Found| Redaction[PII Redaction]
-    PIICheck -->|Clean| Classification[Semantic Classification]
-    Redaction --> Classification
-    Classification --> ModelSelection[Model Selection]
-    ModelSelection --> RateLimit[Rate Limiting]
-    RateLimit --> Execution[Model Execution]
-```
-
-### 6.2 Security Controls
-
-1. **Early PII Detection**: vSR performs PII detection before MaaS processing
-2. **Token Scope Validation**: Ensure tokens have appropriate permissions for selected models
-3. **Audit Logging**: Comprehensive logging of all routing and fallback decisions
-4. **Data Isolation**: Semantic cache respects tenant isolation boundaries
-
-### 6.3 Authorization Flow Security
-
-The proposed Authorization-First flow ensures:
-- **Authentication before Processing**: No semantic analysis occurs without valid authentication
-- **Tier-Based Access Control**: Model selection respects user tier and permissions
-- **Model-Specific RBAC**: Fine-grained access control for individual models
-- **Budget Enforcement**: Prevents unauthorized access to expensive models
-
----
-
-**Document Version**: 2.0  
-**Last Updated**: December 2025  
-**Review Status**: Ready for Architecture Review Board  
-**Next Review Date**: January 2026
