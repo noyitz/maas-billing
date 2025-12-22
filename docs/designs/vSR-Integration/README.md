@@ -402,26 +402,31 @@ sequenceDiagram
 
 **Implementation Details:**
 
-1. **Token Validation**: 
+1. **Token Validation**: ✅ **(Supported Today)**
    - Service Account tokens validated against Kubernetes API
    - Token audience scoped to `maas-default-gateway-sa`
    - Cached validation results (TTL: 600s) for performance
 
-2. **Tier Resolution**:
+2. **Tier Resolution**: ✅ **(Supported Today)**
    - User groups mapped to tiers (free/premium/enterprise) via MaaS API
    - Tier information cached per user (TTL: 300s)
    - Tier determines model access permissions and cost budgets
 
-3. **RBAC Authorization**:
-   - Two-level authorization: basic tier access + semantic routing access
-   - Uses Kubernetes SubjectAccessReview for fine-grained permissions
-   - Resource: `semantic-router.vllm.ai/semanticRouting` with verb `use`
+3. **RBAC Authorization**: 
+   - Basic tier access ✅ **(Supported Today)**: Uses Kubernetes SubjectAccessReview for model serving
+   - Semantic routing access 🆕 **(NEW - MaaS Enhancement Required)**: Additional RBAC rule for `semantic-router.vllm.ai/semanticRouting` resource
 
-4. **Context Enrichment**:
+4. **Model Access Lookup**: 🆕 **(NEW - MaaS Enhancement Required)**
+   - New MaaS API endpoint: `/v1/models/allowed` to provide tier-specific model lists
+   - Enhanced metadata lookup in AuthPolicy to call new endpoint
+   - Cached model access results for performance
+
+5. **Context Enrichment**:
    - Authorino injects authentication context into headers:
-     - `X-User-ID`: Extracted user identifier
-     - `X-Tier`: User's subscription tier
-     - `X-Groups`: User's group memberships
+     - `X-User-ID`: Extracted user identifier ✅ **(Supported Today)**
+     - `X-Tier`: User's subscription tier ✅ **(Supported Today)**
+     - `X-Groups`: User's group memberships 🆕 **(NEW - MaaS Enhancement Required)**
+     - `X-Allowed-Models`: Models accessible to user's tier 🆕 **(NEW - MaaS Enhancement Required)**
 
 **Security Controls:**
 - Early rejection of invalid tokens (before semantic processing)
@@ -440,53 +445,52 @@ sequenceDiagram
 
 **Implementation Details:**
 
-1. **Authorization Context Processing**:
+1. **Authorization Context Processing**: 🆕 **(NEW - vSR Enhancement Required)**
    ```go
    type AuthContext struct {
-       UserID  string
-       Tier    string
-       Groups  []string
+       UserID        string   // From X-User-ID header
+       Tier          string   // From X-Tier header  
+       Groups        []string // From X-Groups header
+       AllowedModels []string // From X-Allowed-Models header
    }
    ```
 
-2. **Enhanced Semantic Classification**:
-   - Category classification (mathematics, code, creative, general)
-   - Tier-aware model selection using internal tier→model mapping
-   - Cost-aware selection using internal tier→budget policies
-   - Content security validation (PII, jailbreak detection)
+2. **Enhanced Semantic Classification**: 
+   - Category classification (mathematics, code, creative, general) ✅ **(Supported Today)**
+   - Tier-aware model selection 🆕 **(NEW - vSR Enhancement Required)**
+   - Model access validation against allowed models list 🆕 **(NEW - vSR Enhancement Required)**
+   - Content security validation (PII, jailbreak detection) ✅ **(Supported Today)**
 
-3. **Intelligent Model Selection**:
-   - **Tier Policy Lookup**: vSR maintains internal tier→models mapping
-   - **Budget Policy Lookup**: vSR maintains internal tier→budget limits  
-   - **Primary Selection**: Best model for category within tier constraints
-   - **Availability Check**: Verify model availability and rate limit status
-   - **Fallback Logic**: Automatic downgrade if primary model unavailable
+3. **Intelligent Model Selection**: 🆕 **(NEW - vSR Enhancement Required)**
+   - **Authorized Model Filtering**: Filter models based on `X-Allowed-Models` header
+   - **Primary Selection**: Best model for category within user's allowed models
+   - **Availability Check**: Verify model availability and rate limit status *(existing logic)*
+   - **Fallback Logic**: Automatic downgrade within allowed models list
 
-4. **Routing Decision Output**:
+4. **Routing Decision Output**: 🆕 **(NEW - vSR Enhancement Required)**
    - `X-Selected-Model`: Chosen model for execution
    - `X-Model-Cost`: Estimated cost for the request
    - `X-Fallback-Used`: Boolean indicating if fallback was required
-   - `X-Category`: Semantic classification result
-   - `X-Confidence`: Classification confidence score
+   - `X-Category`: Semantic classification result *(enhanced)*
+   - `X-Confidence`: Classification confidence score *(enhanced)*
 
 **Intelligence Features:**
-- **Tier-Aware Classification**: Model selection uses internal tier→model policies
-- **Budget Optimization**: Cost limits enforced via internal tier→budget policies
-- **Semantic Caching**: Reduces redundant processing for similar queries  
-- **Content Security**: Integrated PII detection and jailbreak prevention
-- **Loose Coupling**: vSR maintains its own policies, reducing auth flow complexity
+- **Authorization-Aware Selection**: Model selection respects user's allowed models ✅ **(Core Integration Feature)**
+- **Tier-Aware Classification**: Enhanced classification with user context 🆕 **(NEW - vSR Enhancement Required)**
+- **Semantic Caching**: Reduces redundant processing for similar queries ✅ **(Supported Today)**
+- **Content Security**: Integrated PII detection and jailbreak prevention ✅ **(Supported Today)**
 
 #### Phase 3: Model-Aware Rate Limiting
 
 **Component Interactions:**
-- **Limitador**: Enhanced rate limiting engine with model context
-- **Enhanced RateLimitPolicy**: Model-specific rate limiting rules
-- **TokenRateLimitPolicy**: Budget-aware token consumption limits
-- **RHOAI Model Serving**: Backend model execution platform
+- **Limitador**: Enhanced rate limiting engine with model context ✅ **(Core MaaS Component)**
+- **Enhanced RateLimitPolicy**: Model-specific rate limiting rules 🆕 **(NEW - MaaS Enhancement Required)**
+- **TokenRateLimitPolicy**: Budget-aware token consumption limits ✅ **(Supported Today)**
+- **RHOAI Model Serving**: Backend model execution platform ✅ **(Supported Today)**
 
 **Implementation Details:**
 
-1. **Model-Specific Rate Limiting**:
+1. **Model-Specific Rate Limiting**: 🆕 **(NEW - MaaS Enhancement Required)**
    ```yaml
    # Example: Different limits for different models
    gpt4_enterprise: 10 req/min, 100 req/hour
@@ -495,12 +499,12 @@ sequenceDiagram
    ```
 
 2. **Multi-Dimensional Limiting**:
-   - **User-based**: Per-user request limits
-   - **Tier-based**: Subscription tier limits
-   - **Model-based**: Per-model capacity limits
-   - **Cost-based**: Budget consumption tracking
+   - **User-based**: Per-user request limits ✅ **(Supported Today)**
+   - **Tier-based**: Subscription tier limits ✅ **(Supported Today)**
+   - **Model-based**: Per-model capacity limits 🆕 **(NEW - MaaS Enhancement Required)**
+   - **Cost-based**: Budget consumption tracking 🆕 **(NEW - MaaS Enhancement Required)**
 
-3. **Dynamic Rate Limiting**:
+3. **Dynamic Rate Limiting**: 🆕 **(NEW - MaaS Enhancement Required)**
    - Rate limits adjusted based on selected model cost
    - Premium models have stricter limits than basic models
    - Burst allowances for enterprise tiers
@@ -513,10 +517,10 @@ sequenceDiagram
    - **Operational Efficiency**: Model-specific monitoring and alerting
 
 **Rate Limiting Logic:**
-- **Pre-routing Limits**: Basic tier and user limits applied before model selection
-- **Post-routing Limits**: Model-specific limits applied after semantic routing
-- **Cost-aware Limiting**: Rate limits consider estimated cost per request
-- **Fallback Integration**: Automatic suggestions for alternative models when limited
+- **Pre-routing Limits**: Basic tier and user limits applied before model selection ✅ **(Supported Today)**
+- **Post-routing Limits**: Model-specific limits applied after semantic routing 🆕 **(NEW - MaaS Enhancement Required)**
+- **Cost-aware Limiting**: Rate limits consider estimated cost per request 🆕 **(NEW - MaaS Enhancement Required)**
+- **Fallback Integration**: Automatic suggestions for alternative models when limited 🆕 **(NEW - MaaS Enhancement Required)**
 
 #### Component Communication Patterns
 
@@ -526,31 +530,72 @@ All context flows through HTTP headers, enabling stateless operation and easy de
 ```
 # Auth Phase - Authorino injects:
 Authorization: Bearer <service-account-token>
-X-User-ID: user123
-X-Tier: premium
-X-Groups: ["tier-premium-users", "math-specialists"]
+X-User-ID: user123                                          ✅ (Supported Today)
+X-Tier: premium                                             ✅ (Supported Today)  
+X-Groups: ["tier-premium-users", "math-specialists"]        🆕 (NEW - MaaS Enhancement Required)
+X-Allowed-Models: ["phi4-mini", "llama3-8b", "gpt-4o-mini"] 🆕 (NEW - MaaS Enhancement Required)
 
 # Semantic Routing Phase - vSR adds:
-X-Selected-Model: phi4-mini
-X-Model-Cost: 0.15
-X-Category: mathematics
-X-Fallback-Used: false
+X-Selected-Model: phi4-mini                                 🆕 (NEW - vSR Enhancement Required)
+X-Model-Cost: 0.15                                          🆕 (NEW - vSR Enhancement Required)
+X-Category: mathematics                                      🆕 (NEW - vSR Enhancement Required)
+X-Fallback-Used: false                                      🆕 (NEW - vSR Enhancement Required)
 ```
 
 **Error Handling and Fallbacks:**
-- **Authentication Failure**: 401 Unauthorized with clear error message
-- **Authorization Failure**: 403 Forbidden with permission requirements
-- **Rate Limit Exceeded**: 429 Too Many Requests with retry-after guidance
-- **Model Unavailable**: Automatic fallback or 503 Service Unavailable
-- **Budget Exceeded**: Cost-aware error with budget status
+- **Authentication Failure**: 401 Unauthorized with clear error message ✅ **(Supported Today)**
+- **Authorization Failure**: 403 Forbidden with permission requirements ✅ **(Supported Today)**
+- **Rate Limit Exceeded**: 429 Too Many Requests with retry-after guidance ✅ **(Supported Today)**
+- **Model Unavailable**: Automatic fallback or 503 Service Unavailable 🆕 **(NEW - vSR Enhancement Required)**
+- **Budget Exceeded**: Cost-aware error with budget status 🆕 **(NEW - MaaS/vSR Enhancement Required)**
 
 **Performance Optimizations:**
-- **Caching Strategy**: Multi-layer caching for auth decisions, tier mappings, and semantic results
-- **Connection Pooling**: Efficient connections between gateway components
-- **Async Processing**: Non-blocking operations where possible
-- **Circuit Breakers**: Protection against cascading failures
+- **Caching Strategy**: Multi-layer caching for auth decisions, tier mappings, and semantic results 🔄 **(Enhanced - Both Components)**
+- **Connection Pooling**: Efficient connections between gateway components ✅ **(Supported Today)**
+- **Async Processing**: Non-blocking operations where possible ✅ **(Supported Today)**
+- **Circuit Breakers**: Protection against cascading failures 🆕 **(NEW - vSR Enhancement Required)**
 
 This Authorization-First flow ensures enterprise-grade security while enabling the intelligent routing capabilities of vSR, creating a robust and scalable foundation for the integrated platform.
+
+### Implementation Requirements Summary
+
+The integration requires enhancements to both MaaS and vSR components:
+
+#### 🆕 **MaaS Component Enhancements Required:**
+1. **AuthPolicy Extensions**:
+   - Add `X-Groups` header injection to response filters
+   - Add new metadata lookup for model access via `/v1/models/allowed` endpoint
+   - Add `X-Allowed-Models` header injection
+   - Add semantic routing RBAC rule for `semantic-router.vllm.ai/semanticRouting` resource
+
+2. **MaaS API Extensions**:
+   - New endpoint: `POST /v1/models/allowed` for tier-specific model lists
+   - Enhanced tier resolution to include model access policies
+
+3. **Rate Limiting Enhancements**:
+   - Model-specific rate limiting policies
+   - Cost-aware rate limiting based on selected model
+   - Dynamic rate limiting with fallback suggestions
+
+#### 🆕 **vSR Component Enhancements Required:**
+1. **Authorization Context Processing**:
+   - New `AuthContext` struct to parse authorization headers
+   - Header extraction logic for `X-User-ID`, `X-Tier`, `X-Groups`, `X-Allowed-Models`
+   - Integration with existing `RequestContext`
+
+2. **Tier-Aware Model Selection**:
+   - Model filtering based on user's allowed models list
+   - Enhanced semantic classification with authorization context
+   - Fallback logic within allowed models constraints
+
+3. **Enhanced Routing Output**:
+   - Model selection headers (`X-Selected-Model`, `X-Model-Cost`)
+   - Classification result headers (`X-Category`, `X-Confidence`, `X-Fallback-Used`)
+   - Error handling for unauthorized model access attempts
+
+#### ✅ **Existing Capabilities Leveraged:**
+- **MaaS**: Token validation, tier resolution, basic RBAC, user/tier rate limiting
+- **vSR**: Semantic classification, PII detection, jailbreak prevention, semantic caching
 
 
 ## 5. Implementation Architecture Options
