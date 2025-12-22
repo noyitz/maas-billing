@@ -2,7 +2,7 @@
 
 **Document Status**: Draft  
 **Date**: December 2025  
-**Authors**: Principal Software Architect Team  
+**Author**: Noy Itzikowitz 
 **Target Branch**: [maas-billing/main](https://github.com/noyitz/maas-billing/tree/main)
 
 ## Executive Summary
