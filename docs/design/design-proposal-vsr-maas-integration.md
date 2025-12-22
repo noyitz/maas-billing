@@ -136,58 +136,6 @@ graph TB
 - **Semantic Cache**: Performance optimization with similarity-based caching
 - **Tool Selection**: Automatic optimization to reduce token usage and improve accuracy
 
-### Proposed Integrated Architecture
-
-```mermaid
-graph TB
-    subgraph "Client Layer"
-        Client[Clients/Applications]
-    end
-    
-    subgraph "Entry Layer"
-        LB[L4 Load Balancer]
-        Proxy[L7 Web App Proxy]
-    end
-    
-    subgraph "Security & Rate Limiting Layer"
-        Auth["L7 Authorino<br/>Authentication"]
-        RateLimit["L7 Limitador<br/>Rate Limiting"]
-    end
-    
-    subgraph "Semantic Routing Layer"
-        VSR["L7 vSR ExtProc<br/>Model Picker"]
-        Classifier[ModernBERT Classifier]
-        PIIGuard[PII Detection]
-        Cache[Semantic Cache]
-    end
-    
-    subgraph "Model Access Layer"
-        MaaS["L7 MaaS llm-d<br/>Model Gateway"]
-        RBAC[Model Access Control]
-    end
-    
-    subgraph "Model Serving Layer"
-        Model1["Math Specialist<br/>phi4-mini"]
-        Model2["General Purpose<br/>llama3-8b"]
-        Model3["Code Generator<br/>CodeLlama"]
-        ModelN["Enterprise Models<br/>GPT-4 class"]
-    end
-    
-    Client --> LB
-    LB --> Proxy
-    Proxy --> Auth
-    Auth --> RateLimit
-    RateLimit --> VSR
-    VSR --> Classifier
-    VSR --> PIIGuard  
-    VSR --> Cache
-    VSR --> MaaS
-    MaaS --> RBAC
-    RBAC --> Model1
-    RBAC --> Model2
-    RBAC --> Model3
-    RBAC --> ModelN
-```
 
 ## 2. Authorization (AuthZ) Analysis
 
@@ -356,7 +304,68 @@ sequenceDiagram
 | **✅ Semantic Caching Benefits**: Early caching can prevent downstream processing entirely | **❌ Tier Resolution Complexity**: vSR needs access to user tier information for proper model selection |
 | **✅ Optimal Tool Selection**: Tools can be selected before rate limiting, improving accuracy | **❌ Architectural Disruption**: Requires significant changes to existing MaaS auth flow |
 
-### 2.4 Enhanced Authorization Policy Configuration
+### 2.4 Proposed Integrated Architecture
+
+Based on the analysis of both options, we propose the **Authorization-First Integrated Architecture** that combines the security benefits of Option A with the intelligent routing capabilities of Option B:
+
+```mermaid
+graph TB
+    subgraph "Client Layer"
+        Client[Clients/Applications]
+    end
+    
+    subgraph "Entry Layer"
+        LB[L4 Load Balancer]
+        Proxy[L7 Web App Proxy]
+    end
+    
+    subgraph "Security & Rate Limiting Layer"
+        Auth["L7 Authorino<br/>Authentication"]
+        RateLimit["L7 Limitador<br/>Rate Limiting"]
+    end
+    
+    subgraph "Semantic Routing Layer"
+        VSR["L7 vSR ExtProc<br/>Model Picker"]
+        Classifier[ModernBERT Classifier]
+        PIIGuard[PII Detection]
+        Cache[Semantic Cache]
+    end
+    
+    subgraph "Model Access Layer"
+        MaaS["L7 MaaS llm-d<br/>Model Gateway"]
+        RBAC[Model Access Control]
+    end
+    
+    subgraph "Model Serving Layer"
+        Model1["Math Specialist<br/>phi4-mini"]
+        Model2["General Purpose<br/>llama3-8b"]
+        Model3["Code Generator<br/>CodeLlama"]
+        ModelN["Enterprise Models<br/>GPT-4 class"]
+    end
+    
+    Client --> LB
+    LB --> Proxy
+    Proxy --> Auth
+    Auth --> RateLimit
+    RateLimit --> VSR
+    VSR --> Classifier
+    VSR --> PIIGuard  
+    VSR --> Cache
+    VSR --> MaaS
+    MaaS --> RBAC
+    RBAC --> Model1
+    RBAC --> Model2
+    RBAC --> Model3
+    RBAC --> ModelN
+```
+
+**Key Design Principles:**
+- **Security First**: Full authentication and authorization before semantic processing
+- **Intelligent Routing**: vSR operates with full user context and permissions
+- **Model-Aware Rate Limiting**: Rate limits applied after model selection with cost awareness
+- **Clear Separation**: Each component focuses on its core responsibility
+
+### 2.5 Enhanced Authorization Policy Configuration
 
 To support the Authorization-First flow, we need an enhanced AuthPolicy that grants semantic routing access:
 
@@ -470,7 +479,7 @@ spec:
                   expression: auth.metadata.matchedTier["maxCostPerRequest"]
 ```
 
-### 2.5 vSR ExtProc Enhancement for Authorization Context
+### 2.6 vSR ExtProc Enhancement for Authorization Context
 
 vSR needs to be enhanced to understand and respect authorization context:
 
