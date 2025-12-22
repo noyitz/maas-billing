@@ -411,7 +411,7 @@ This document covers:
 - Configuration examples for model hierarchy and rate limiting policies
 - Monitoring and alerting strategies for adaptive systems
 
-### 6.2 Monitoring and Observability
+## 7. Monitoring and Observability
 
 For complete observability strategy and implementation, see:
 **[📋 Monitoring and Observability](monitoring-and-observability.md)**
@@ -423,7 +423,7 @@ This document details:
 - Business intelligence dashboards and alerting strategies
 - SLIs/SLOs and error budget management
 
-## 7. Security Considerations
+## 8. Security Considerations
 
 For comprehensive security analysis and implementation details, see:
 **[📋 Security Considerations](security-considerations.md)**
