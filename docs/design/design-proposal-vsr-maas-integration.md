@@ -15,31 +15,126 @@ The proposal evaluates two primary integration patterns and recommends a hybrid 
 
 ### Current MaaS Architecture
 
-The MaaS platform follows this request flow:
-```
-L4 LB → L7 Web App Proxy → L7 Rate Limiting (Authorino/Kuadrant) → L7 MaaS (llm-d) → LLM Providers
+The MaaS platform provides a complete Models-as-a-Service solution with policy-based access control:
+
+```mermaid
+graph TB
+    subgraph "Client Layer"
+        Client[Client Applications<br/>with Service Account Token]
+    end
+    
+    subgraph "Gateway Layer"
+        GatewayAPI[maas-default-gateway<br/>All Traffic Entry Point]
+        Envoy[Envoy Proxy]
+    end
+    
+    subgraph "RHCL Policy Engine"
+        Kuadrant[Kuadrant<br/>Policy Attachment]
+        Authorino[Authorino<br/>Authentication Service]
+        Limitador[Limitador<br/>Rate Limiting Service]
+    end
+    
+    subgraph "Policy Components"
+        AuthPolicy[AuthPolicy<br/>gateway-auth-policy]
+        RateLimitPolicy[RateLimitPolicy<br/>gateway-rate-limits]
+        TokenRateLimitPolicy[TokenRateLimitPolicy<br/>gateway-token-rate-limits]
+    end
+    
+    subgraph "Model Access Control"
+        RBAC[Kubernetes RBAC<br/>Service Account Permissions]
+        LLMInferenceService[LLMInferenceService<br/>Model Access Control]
+    end
+    
+    subgraph "Model Serving"
+        RHOAI[RHOAI Platform]
+        Models[LLM Models<br/>Qwen, Granite, Llama]
+    end
+    
+    Client --> GatewayAPI
+    GatewayAPI --> Envoy
+    
+    Envoy --> Kuadrant
+    Kuadrant --> Authorino
+    Kuadrant --> Limitador
+    
+    Authorino --> AuthPolicy
+    Limitador --> RateLimitPolicy
+    Limitador --> TokenRateLimitPolicy
+    
+    Envoy --> RBAC
+    RBAC --> LLMInferenceService
+    LLMInferenceService --> RHOAI
+    RHOAI --> Models
 ```
 
 **Key Components:**
-- **maas-default-gateway**: Single entry point using Gateway API
-- **Authorino**: Authentication and authorization
-- **Limitador**: Rate limiting and billing controls  
-- **MaaS API**: Token generation and tier management
-- **RHOAI Model Serving**: Backend LLM providers
+- **maas-default-gateway**: Single entry point for all traffic (token requests and inference)
+- **RHCL (Red Hat Connectivity Link)**: Policy engine handling authentication and authorization
+- **Authorino**: Token validation (OpenShift tokens for MaaS API, Service Account tokens for inference)
+- **Limitador**: Rate limiting and quota enforcement
+- **RHOAI Model Serving**: Backend LLM model execution platform
 
 ### Current vSR Architecture
 
-The vSR system provides intelligent routing through:
-```
-Client → Envoy Proxy → vSR ExtProc Service → Selected Model Backend
+The vSR system implements a sophisticated Mixture-of-Models architecture using Envoy Proxy with External Processor integration:
+
+```mermaid
+graph TB
+    subgraph "Client Layer"
+        Client1[Web Application]
+        Client2[Mobile App]
+        Client3[API Client]
+        Client4[Third-party Integration]
+    end
+    
+    subgraph "Proxy Layer"
+        Envoy[Envoy Proxy<br/>:8801]
+    end
+    
+    subgraph "Processing Layer"
+        ExtProc[Semantic Router<br/>ExtProc Server<br/>:50051]
+        
+        subgraph "Router Components"
+            Classifier[BERT Classifier<br/>ModernBERT]
+            PIIDetector[PII Detector<br/>Privacy Protection]
+            JailbreakGuard[Jailbreak Guard<br/>Security]
+            Cache[Semantic Cache<br/>Performance]
+            ToolsSelector[Tools Selector<br/>Optimization]
+        end
+    end
+    
+    subgraph "Model Layer"
+        Model1[Math Specialist<br/>Endpoint 1]
+        Model2[Creative Model<br/>Endpoint 2] 
+        Model3[Code Generator<br/>Endpoint 3]
+        ModelN[General Purpose<br/>Endpoint N]
+    end
+    
+    Client1 --> Envoy
+    Client2 --> Envoy
+    Client3 --> Envoy
+    Client4 --> Envoy
+    
+    Envoy <--> ExtProc
+    
+    ExtProc --> Classifier
+    ExtProc --> PIIDetector
+    ExtProc --> JailbreakGuard
+    ExtProc --> Cache
+    ExtProc --> ToolsSelector
+    
+    Envoy --> Model1
+    Envoy --> Model2
+    Envoy --> Model3
+    Envoy --> ModelN
 ```
 
 **Key Components:**
-- **Envoy Proxy**: L7 proxy with ExtProc integration
-- **vSR ExtProc Service**: Go-based semantic classification service
-- **ModernBERT Classifiers**: Category, PII, and jailbreak detection
-- **Semantic Cache**: Performance optimization layer
-- **Tool Selection**: Automatic tool optimization
+- **Envoy Proxy**: Traffic management layer with load balancing, health checking, and request/response processing
+- **vSR ExtProc Service**: Go-based gRPC service providing semantic classification and routing intelligence
+- **ModernBERT Classifiers**: Multi-task classification for category detection, PII scanning, and jailbreak prevention
+- **Semantic Cache**: Performance optimization with similarity-based caching
+- **Tool Selection**: Automatic optimization to reduce token usage and improve accuracy
 
 ### Proposed Integrated Architecture
 
@@ -55,27 +150,27 @@ graph TB
     end
     
     subgraph "Security & Rate Limiting Layer"
-        Auth[L7 Authorino<br/>Authentication]
-        RateLimit[L7 Limitador<br/>Rate Limiting]
+        Auth["L7 Authorino<br/>Authentication"]
+        RateLimit["L7 Limitador<br/>Rate Limiting"]
     end
     
     subgraph "Semantic Routing Layer"
-        VSR[L7 vSR ExtProc<br/>Model Picker]
+        VSR["L7 vSR ExtProc<br/>Model Picker"]
         Classifier[ModernBERT Classifier]
         PIIGuard[PII Detection]
         Cache[Semantic Cache]
     end
     
     subgraph "Model Access Layer"
-        MaaS[L7 MaaS (llm-d)<br/>Model Gateway]
+        MaaS["L7 MaaS llm-d<br/>Model Gateway"]
         RBAC[Model Access Control]
     end
     
     subgraph "Model Serving Layer"
-        Model1[Math Specialist<br/>phi4-mini]
-        Model2[General Purpose<br/>llama3-8b]
-        Model3[Code Generator<br/>CodeLlama]
-        ModelN[Enterprise Models<br/>GPT-4 class]
+        Model1["Math Specialist<br/>phi4-mini"]
+        Model2["General Purpose<br/>llama3-8b"]
+        Model3["Code Generator<br/>CodeLlama"]
+        ModelN["Enterprise Models<br/>GPT-4 class"]
     end
     
     Client --> LB
@@ -121,11 +216,11 @@ sequenceDiagram
 
 | **Gains** | **Losses** |
 |-----------|------------|
-| **✅ Centralized Rate Limiting**: Generic, tier-based rate limits applied before any processing overhead | **❌ No Per-Model Rate Limiting**: Cannot apply model-specific limits since model selection hasn't occurred |
-| **✅ Early Authentication**: Token validation and tier resolution happens immediately | **❌ Wasted Processing**: Rate limiting occurs before knowing if expensive models will be used |
-| **✅ Simplified Billing**: All billing logic remains in MaaS without modification | **❌ Suboptimal Resource Allocation**: Cannot differentiate between high/low cost model requests for rate limiting |
-| **✅ Security First**: Authentication and authorization happen before semantic processing | **❌ Limited Fallback Options**: No opportunity for model downgrading when premium models hit limits |
-| **✅ Proven Architecture**: Leverages existing MaaS patterns and policies | **❌ Reduced Efficiency**: Cannot cache or optimize based on semantic classification early in pipeline |
+| **✅ Early Authentication**: Token validation and tier resolution happens immediately | **❌ No Per-Model Rate Limiting**: Cannot apply model-specific limits since model selection hasn't occurred |
+| **✅ Security First**: Authentication and authorization happen before semantic processing | **❌ Wasted Processing**: Rate limiting occurs before knowing if expensive models will be used |
+| **✅ Proven Architecture**: Leverages existing MaaS patterns and policies | **❌ Suboptimal Resource Allocation**: Cannot differentiate between high/low cost model requests for rate limiting |
+| **✅ Consistent User Experience**: All users follow the same authentication flow | **❌ Limited Fallback Options**: No opportunity for model downgrading when premium models hit limits |
+| **✅ Operational Simplicity**: No changes needed to existing MaaS rate limiting policies | **❌ Missed Optimization**: Cannot leverage semantic caching early to avoid downstream processing |
 
 ### Option B: vSR before MaaS (vSR → MaaS)
 
@@ -153,9 +248,9 @@ sequenceDiagram
 | **Gains** | **Losses** |
 |-----------|------------|
 | **✅ Per-Model Rate Limiting**: Can apply specific limits based on model cost and complexity | **❌ Security Risk**: Semantic processing occurs before full authentication |
-| **✅ Intelligent Resource Management**: Rate limits can consider model computational costs | **❌ Potential PII Exposure**: Sensitive data might be processed before security checks |
+| **✅ Intelligent Resource Management**: Rate limits can consider model computational costs | **❌ Authentication Bypass Risk**: Risk of processing requests with invalid tokens through semantic router |
 | **✅ Advanced Fallback**: Can downgrade to cheaper models when expensive ones hit limits | **❌ Complex Error Handling**: Authentication failures after semantic processing waste resources |
-| **✅ Semantic Caching Benefits**: Early caching can prevent downstream processing entirely | **❌ Token Validation Complexity**: Need to validate tokens in vSR for proper model selection |
+| **✅ Semantic Caching Benefits**: Early caching can prevent downstream processing entirely | **❌ Tier Resolution Complexity**: vSR needs access to user tier information for proper model selection |
 | **✅ Optimal Tool Selection**: Tools can be selected before rate limiting, improving accuracy | **❌ Architectural Disruption**: Requires significant changes to existing MaaS auth flow |
 
 ## 3. Recommended Architecture: Hybrid Approach
