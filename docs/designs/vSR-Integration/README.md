@@ -422,8 +422,6 @@ sequenceDiagram
      - `X-User-ID`: Extracted user identifier
      - `X-Tier`: User's subscription tier
      - `X-Groups`: User's group memberships
-     - `X-Allowed-Models`: Models accessible to user's tier
-     - `X-Max-Cost-Per-Request`: Budget limit for the tier
 
 **Security Controls:**
 - Early rejection of invalid tokens (before semantic processing)
@@ -445,23 +443,22 @@ sequenceDiagram
 1. **Authorization Context Processing**:
    ```go
    type AuthContext struct {
-       UserID        string
-       Tier          string
-       Groups        []string
-       AllowedModels []string
-       MaxCost       float64
+       UserID  string
+       Tier    string
+       Groups  []string
    }
    ```
 
 2. **Enhanced Semantic Classification**:
    - Category classification (mathematics, code, creative, general)
-   - Tier-aware model selection considering user permissions
-   - Cost-aware selection within budget constraints
+   - Tier-aware model selection using internal tier→model mapping
+   - Cost-aware selection using internal tier→budget policies
    - Content security validation (PII, jailbreak detection)
 
 3. **Intelligent Model Selection**:
-   - **Primary Selection**: Best model for category within tier permissions
-   - **Cost Validation**: Ensure selected model within user's cost budget
+   - **Tier Policy Lookup**: vSR maintains internal tier→models mapping
+   - **Budget Policy Lookup**: vSR maintains internal tier→budget limits  
+   - **Primary Selection**: Best model for category within tier constraints
    - **Availability Check**: Verify model availability and rate limit status
    - **Fallback Logic**: Automatic downgrade if primary model unavailable
 
@@ -473,10 +470,11 @@ sequenceDiagram
    - `X-Confidence`: Classification confidence score
 
 **Intelligence Features:**
-- **Tier-Aware Classification**: Model selection considers user's tier constraints
-- **Budget Optimization**: Automatic selection of cost-effective models
-- **Semantic Caching**: Reduces redundant processing for similar queries
+- **Tier-Aware Classification**: Model selection uses internal tier→model policies
+- **Budget Optimization**: Cost limits enforced via internal tier→budget policies
+- **Semantic Caching**: Reduces redundant processing for similar queries  
 - **Content Security**: Integrated PII detection and jailbreak prevention
+- **Loose Coupling**: vSR maintains its own policies, reducing auth flow complexity
 
 #### Phase 3: Model-Aware Rate Limiting
 
@@ -526,15 +524,17 @@ sequenceDiagram
 All context flows through HTTP headers, enabling stateless operation and easy debugging:
 
 ```
+# Auth Phase - Authorino injects:
 Authorization: Bearer <service-account-token>
 X-User-ID: user123
 X-Tier: premium
 X-Groups: ["tier-premium-users", "math-specialists"]
-X-Allowed-Models: ["phi4-mini", "llama3-8b", "gpt-4o-mini"]
-X-Max-Cost-Per-Request: 0.50
+
+# Semantic Routing Phase - vSR adds:
 X-Selected-Model: phi4-mini
 X-Model-Cost: 0.15
 X-Category: mathematics
+X-Fallback-Used: false
 ```
 
 **Error Handling and Fallbacks:**
