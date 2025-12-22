@@ -344,6 +344,24 @@ Based on the analysis of both options, we recommend the **Authorization-First In
 
 ### 4.1 Recommended Flow: Auth → vSR → MaaS Rate Limiting
 
+The recommended solution implements a **three-phase Authorization-First flow** that maximizes security while enabling intelligent semantic routing. This approach ensures that authentication and authorization occur before any semantic processing, while still providing the benefits of model-aware rate limiting and cost optimization.
+
+#### Architectural Rationale
+
+**Why Authorization-First?**
+1. **Security Priority**: No semantic processing occurs without valid authentication and authorization
+2. **Context Propagation**: Authentication provides tier and permission context to vSR for intelligent model selection
+3. **Audit Compliance**: Complete audit trail from authentication through model execution
+4. **Performance Optimization**: Early rejection of unauthorized requests prevents wasted compute resources
+
+**Component Integration Strategy:**
+The integration leverages the strengths of both systems:
+- **MaaS Security Framework**: Proven authentication, authorization, and rate limiting
+- **vSR Intelligence**: Semantic classification and model selection capabilities
+- **Unified Policy Engine**: Single policy attachment point via Kuadrant/RHCL
+
+#### Detailed Flow Implementation
+
 ```mermaid
 sequenceDiagram
     participant Client
@@ -373,6 +391,166 @@ sequenceDiagram
     Limitador-->>Gateway: Rate limit decision
     Gateway->>Model: Execute on selected model
 ```
+
+#### Phase 1: Authentication & Authorization
+
+**Component Interactions:**
+- **maas-default-gateway**: Single entry point for all requests, applies Kuadrant policies
+- **Authorino**: Validates Service Account tokens using Kubernetes TokenReview API
+- **MaaS API**: Provides tier resolution mapping user groups to subscription levels
+- **Enhanced AuthPolicy**: Extended to include semantic routing permissions
+
+**Implementation Details:**
+
+1. **Token Validation**: 
+   - Service Account tokens validated against Kubernetes API
+   - Token audience scoped to `maas-default-gateway-sa`
+   - Cached validation results (TTL: 600s) for performance
+
+2. **Tier Resolution**:
+   - User groups mapped to tiers (free/premium/enterprise) via MaaS API
+   - Tier information cached per user (TTL: 300s)
+   - Tier determines model access permissions and cost budgets
+
+3. **RBAC Authorization**:
+   - Two-level authorization: basic tier access + semantic routing access
+   - Uses Kubernetes SubjectAccessReview for fine-grained permissions
+   - Resource: `semantic-router.vllm.ai/semanticRouting` with verb `use`
+
+4. **Context Enrichment**:
+   - Authorino injects authentication context into headers:
+     - `X-User-ID`: Extracted user identifier
+     - `X-Tier`: User's subscription tier
+     - `X-Groups`: User's group memberships
+     - `X-Allowed-Models`: Models accessible to user's tier
+     - `X-Max-Cost-Per-Request`: Budget limit for the tier
+
+**Security Controls:**
+- Early rejection of invalid tokens (before semantic processing)
+- Tier-based access control prevents unauthorized model access
+- Comprehensive audit logging of authentication decisions
+- Token scope validation ensures least privilege access
+
+#### Phase 2: Semantic Routing
+
+**Component Interactions:**
+- **vSR ExtProc**: Enhanced to process authorization context
+- **ModernBERT Classifier**: Performs semantic classification with tier awareness
+- **PII Detector**: Scans content for sensitive information
+- **Jailbreak Guard**: Prevents malicious prompt injection
+- **Semantic Cache**: Optimizes performance with tier-aware caching
+
+**Implementation Details:**
+
+1. **Authorization Context Processing**:
+   ```go
+   type AuthContext struct {
+       UserID        string
+       Tier          string
+       Groups        []string
+       AllowedModels []string
+       MaxCost       float64
+   }
+   ```
+
+2. **Enhanced Semantic Classification**:
+   - Category classification (mathematics, code, creative, general)
+   - Tier-aware model selection considering user permissions
+   - Cost-aware selection within budget constraints
+   - Content security validation (PII, jailbreak detection)
+
+3. **Intelligent Model Selection**:
+   - **Primary Selection**: Best model for category within tier permissions
+   - **Cost Validation**: Ensure selected model within user's cost budget
+   - **Availability Check**: Verify model availability and rate limit status
+   - **Fallback Logic**: Automatic downgrade if primary model unavailable
+
+4. **Routing Decision Output**:
+   - `X-Selected-Model`: Chosen model for execution
+   - `X-Model-Cost`: Estimated cost for the request
+   - `X-Fallback-Used`: Boolean indicating if fallback was required
+   - `X-Category`: Semantic classification result
+   - `X-Confidence`: Classification confidence score
+
+**Intelligence Features:**
+- **Tier-Aware Classification**: Model selection considers user's tier constraints
+- **Budget Optimization**: Automatic selection of cost-effective models
+- **Semantic Caching**: Reduces redundant processing for similar queries
+- **Content Security**: Integrated PII detection and jailbreak prevention
+
+#### Phase 3: Model-Aware Rate Limiting
+
+**Component Interactions:**
+- **Limitador**: Enhanced rate limiting engine with model context
+- **Enhanced RateLimitPolicy**: Model-specific rate limiting rules
+- **TokenRateLimitPolicy**: Budget-aware token consumption limits
+- **RHOAI Model Serving**: Backend model execution platform
+
+**Implementation Details:**
+
+1. **Model-Specific Rate Limiting**:
+   ```yaml
+   # Example: Different limits for different models
+   gpt4_enterprise: 10 req/min, 100 req/hour
+   phi4_premium: 30 req/min, 500 req/hour
+   llama3_free: 5 req/min, 50 req/hour
+   ```
+
+2. **Multi-Dimensional Limiting**:
+   - **User-based**: Per-user request limits
+   - **Tier-based**: Subscription tier limits
+   - **Model-based**: Per-model capacity limits
+   - **Cost-based**: Budget consumption tracking
+
+3. **Dynamic Rate Limiting**:
+   - Rate limits adjusted based on selected model cost
+   - Premium models have stricter limits than basic models
+   - Burst allowances for enterprise tiers
+   - Automatic fallback suggestions when limits exceeded
+
+4. **Integration Benefits**:
+   - **Cost Control**: Prevents budget exhaustion through intelligent limiting
+   - **Resource Optimization**: Distributes load based on model capacity
+   - **User Experience**: Transparent limit communication with retry-after headers
+   - **Operational Efficiency**: Model-specific monitoring and alerting
+
+**Rate Limiting Logic:**
+- **Pre-routing Limits**: Basic tier and user limits applied before model selection
+- **Post-routing Limits**: Model-specific limits applied after semantic routing
+- **Cost-aware Limiting**: Rate limits consider estimated cost per request
+- **Fallback Integration**: Automatic suggestions for alternative models when limited
+
+#### Component Communication Patterns
+
+**Header-Based Context Propagation:**
+All context flows through HTTP headers, enabling stateless operation and easy debugging:
+
+```
+Authorization: Bearer <service-account-token>
+X-User-ID: user123
+X-Tier: premium
+X-Groups: ["tier-premium-users", "math-specialists"]
+X-Allowed-Models: ["phi4-mini", "llama3-8b", "gpt-4o-mini"]
+X-Max-Cost-Per-Request: 0.50
+X-Selected-Model: phi4-mini
+X-Model-Cost: 0.15
+X-Category: mathematics
+```
+
+**Error Handling and Fallbacks:**
+- **Authentication Failure**: 401 Unauthorized with clear error message
+- **Authorization Failure**: 403 Forbidden with permission requirements
+- **Rate Limit Exceeded**: 429 Too Many Requests with retry-after guidance
+- **Model Unavailable**: Automatic fallback or 503 Service Unavailable
+- **Budget Exceeded**: Cost-aware error with budget status
+
+**Performance Optimizations:**
+- **Caching Strategy**: Multi-layer caching for auth decisions, tier mappings, and semantic results
+- **Connection Pooling**: Efficient connections between gateway components
+- **Async Processing**: Non-blocking operations where possible
+- **Circuit Breakers**: Protection against cascading failures
+
+This Authorization-First flow ensures enterprise-grade security while enabling the intelligent routing capabilities of vSR, creating a robust and scalable foundation for the integrated platform.
 
 For detailed authorization configuration and code examples, see:
 **[📋 Implementation Examples](implementation-examples.md)**
