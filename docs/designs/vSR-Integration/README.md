@@ -416,17 +416,18 @@ sequenceDiagram
    - Basic tier access ✅ **(Supported Today)**: Uses Kubernetes SubjectAccessReview for model serving
    - Semantic routing access 🆕 **(NEW - MaaS Enhancement Required)**: Additional RBAC rule for `semantic-router.vllm.ai/semanticRouting` resource
 
-4. **Model Access Lookup**: 🆕 **(NEW - MaaS Enhancement Required)**
-   - New MaaS API endpoint: `/v1/models/allowed` to provide tier-specific model lists
-   - Enhanced metadata lookup in AuthPolicy to call new endpoint
-   - Cached model access results for performance
+4. **Model Access Lookup**: 🆕 **(NEW - MaaS API + RHCL Enhancement Required)**
+   - New MaaS API endpoint: `/v1/models/allowed` to provide tier-specific model lists *(MaaS Team)*
+   - Enhanced metadata lookup capability in Authorino *(RHCL Team - Generic Feature)*
+   - MaaS AuthPolicy configuration to call new endpoint *(MaaS Team)*
+   - Cached model access results for performance *(Existing Authorino capability)*
 
 5. **Context Enrichment**:
    - Authorino injects authentication context into headers:
      - `X-User-ID`: Extracted user identifier ✅ **(Supported Today)**
      - `X-Tier`: User's subscription tier ✅ **(Supported Today)**
-     - `X-Groups`: User's group memberships 🆕 **(NEW - MaaS Enhancement Required)**
-     - `X-Allowed-Models`: Models accessible to user's tier 🆕 **(NEW - MaaS Enhancement Required)**
+     - `X-Groups`: User's group memberships 🆕 **(NEW - RHCL Team: Generic Response Filter Enhancement)**
+     - `X-Allowed-Models`: Models accessible to user's tier 🆕 **(NEW - RHCL Team: Generic Response Filter Enhancement)**
 
 **Security Controls:**
 - Early rejection of invalid tokens (before semantic processing)
@@ -532,8 +533,8 @@ All context flows through HTTP headers, enabling stateless operation and easy de
 Authorization: Bearer <service-account-token>
 X-User-ID: user123                                          ✅ (Supported Today)
 X-Tier: premium                                             ✅ (Supported Today)  
-X-Groups: ["tier-premium-users", "math-specialists"]        🆕 (NEW - MaaS Enhancement Required)
-X-Allowed-Models: ["phi4-mini", "llama3-8b", "gpt-4o-mini"] 🆕 (NEW - MaaS Enhancement Required)
+X-Groups: ["tier-premium-users", "math-specialists"]        🆕 (NEW - RHCL Team: Generic Feature)
+X-Allowed-Models: ["phi4-mini", "llama3-8b", "gpt-4o-mini"] 🆕 (NEW - RHCL Team: Generic Feature + MaaS API)
 
 # Semantic Routing Phase - vSR adds:
 X-Selected-Model: phi4-mini                                 🆕 (NEW - vSR Enhancement Required)
@@ -561,16 +562,25 @@ This Authorization-First flow ensures enterprise-grade security while enabling t
 
 The integration requires enhancements to both MaaS and vSR components:
 
-#### 🆕 **MaaS Component Enhancements Required:**
-1. **AuthPolicy Extensions**:
-   - Add `X-Groups` header injection to response filters
-   - Add new metadata lookup for model access via `/v1/models/allowed` endpoint
-   - Add `X-Allowed-Models` header injection
-   - Add semantic routing RBAC rule for `semantic-router.vllm.ai/semanticRouting` resource
+#### 🆕 **RHCL (Red Hat Connectivity Link) Team Enhancements Required:**
 
-2. **MaaS API Extensions**:
+⚠️ **Important**: All Authorino enhancements must be **generic and agnostic** - not MaaS-specific. Authorino serves multiple Red Hat products and must remain product-neutral.
+
+1. **Authorino Generic Extensions**:
+   - **Response Filter Enhancement**: Add `X-Groups` header injection capability *(generic feature for any application)*
+   - **Metadata Lookup Enhancement**: Enable additional HTTP metadata lookup capabilities *(generic enhancement)*
+   - **Response Header Support**: Enhanced response filter for arbitrary header injection *(generic capability)*
+   - **Custom Resource RBAC**: Generic RBAC rule support for custom resource groups *(product-agnostic)*
+
+#### 🆕 **MaaS Component Enhancements Required:**
+1. **MaaS API Extensions**:
    - New endpoint: `POST /v1/models/allowed` for tier-specific model lists
    - Enhanced tier resolution to include model access policies
+
+2. **AuthPolicy Configuration** *(MaaS-specific configuration of generic Authorino features)*:
+   - Configure metadata lookup for model access via `/v1/models/allowed` endpoint
+   - Configure `X-Allowed-Models` header injection using enhanced response filters
+   - Configure semantic routing RBAC rule for `semantic-router.vllm.ai/semanticRouting` resource
 
 3. **Rate Limiting Enhancements**:
    - Model-specific rate limiting policies
