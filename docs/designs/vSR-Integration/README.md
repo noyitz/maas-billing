@@ -342,63 +342,86 @@ sequenceDiagram
 
 Based on the analysis of both options, we recommend the **Authorization-First Integrated Architecture** that combines the security benefits of Option A with the intelligent routing capabilities of Option B.
 
-### 4.1 Recommended Flow: Auth → vSR → MaaS Rate Limiting
+### 4.1 Recommended Flow: Auth → vSR ExtProc → Security Validation → Model Execution
 
-The recommended solution implements a **three-phase Authorization-First flow** that maximizes security while enabling intelligent semantic routing. This approach ensures that authentication and authorization occur before any semantic processing, while still providing the benefits of model-aware rate limiting and cost optimization.
+The recommended solution implements a **fail-fast security-first flow** using Envoy External Processing (ExtProc) that ensures proper authentication, intelligent semantic routing, accurate billing, and immediate security termination when threats are detected.
 
 #### Architectural Rationale
 
-**Why Authorization-First?**
-1. **Security Priority**: No semantic processing occurs without valid authentication and authorization
-2. **Context Propagation**: Authentication provides tier and permission context to vSR for intelligent model selection
-3. **Audit Compliance**: Complete audit trail from authentication through model execution
-4. **Performance Optimization**: Early rejection of unauthorized requests prevents wasted compute resources
+**Why External Processing (ExtProc) Architecture?**
+1. **Production Feasibility**: vSR requires vector embeddings (ModernBERT), GPU access, and Python ML libraries - impossible in Wasm sandbox
+2. **Scalability**: ExtProc allows vSR to run as separate service/pod with dedicated resources
+3. **Fail-Fast Security**: ExtProc can immediately terminate malicious requests (jailbreak/PII) without reaching models
+4. **Accurate Billing**: ExtProc can inject dynamic metadata for precise cost accounting
+
+**Critical Security & Billing Requirements:**
+- **Immediate Threat Termination**: Jailbreak detection must return HTTP 403, not route to models
+- **Dynamic Billing Metadata**: Selected model must be injected for accurate cost accounting
+- **Context-Aware Processing**: Authentication context enables tier-aware model selection
 
 **Component Integration Strategy:**
-The integration leverages the strengths of both systems:
-- **MaaS Security Framework**: Proven authentication, authorization, and rate limiting
-- **vSR Intelligence**: Semantic classification and model selection capabilities
-- **Unified Policy Engine**: Single policy attachment point via Kuadrant/RHCL
+- **MaaS Security Framework**: Multi-phase authentication and authorization
+- **vSR ExtProc Service**: External semantic processing with security controls
+- **Dynamic Metadata Injection**: Billing accuracy via model selection headers
+- **Fail-Fast Architecture**: Security violations terminate immediately
 
 #### Detailed Flow Implementation
 
 ```mermaid
 sequenceDiagram
     participant Client
-    participant Gateway as maas-default-gateway  
-    participant Authorino
+    participant Gateway as maas-default-gateway
+    participant Authorino as Authorino (Phase 1)
     participant MaaSAPI as MaaS API
-    participant vSR as vSR ExtProc
-    participant Limitador
-    participant Model
+    participant vSR as vSR ExtProc Service
+    participant Authorino2 as Authorino (Phase 2)
+    participant KServe as KServe Model
+    participant Billing as Billing Collector
     
-    Note over Client,Model: Phase 1: Authentication & Authorization
-    Client->>Gateway: Request + Service Account Token
-    Gateway->>Authorino: Apply AuthPolicy
-    Authorino->>MaaSAPI: Tier lookup + RBAC check
-    MaaSAPI-->>Authorino: User authorized for semantic routing
-    Authorino-->>Gateway: Auth Success + tier context
+    Note over Client,KServe: Phase 1: Identity Authentication
+    Client->>Gateway: POST /chat/completions + Service Account Token
+    Gateway->>Authorino: Apply AuthPolicy (Identity Check)
+    Authorino->>MaaSAPI: Tier lookup + Basic RBAC
+    MaaSAPI-->>Authorino: User authorized for API access
+    Authorino-->>Gateway: Auth Success + Context Headers<br/>X-User-ID, X-Tier, X-Groups, X-Allowed-Models
     
-    Note over Client,Model: Phase 2: Semantic Routing
-    Gateway->>vSR: Forward with auth headers<br/>X-User-ID, X-Tier, X-Groups
-    vSR->>vSR: Semantic classification
-    vSR->>vSR: Model selection based on category + tier
-    vSR-->>Gateway: Routing decision<br/>X-Selected-Model, X-Model-Cost
+    Note over Client,KServe: Phase 2: Security & Semantic Processing (FAIL-FAST)
+    Gateway->>vSR: ExtProc Call with Request Body + Auth Context
+    vSR->>vSR: Calculate Vector Embeddings (ModernBERT)
+    vSR->>vSR: PII Detection
+    vSR->>vSR: Jailbreak Detection
     
-    Note over Client,Model: Phase 3: Model-Aware Rate Limiting
-    Gateway->>Limitador: Apply rate limits with model context
-    Limitador->>Limitador: Check tier + model-specific limits
-    Limitador-->>Gateway: Rate limit decision
-    Gateway->>Model: Execute on selected model
+    alt Security Violation Detected
+        vSR-->>Gateway: HTTP 403 Forbidden (IMMEDIATE TERMINATION)
+        Gateway-->>Client: 403 Forbidden - Security Violation
+    else Request is Safe
+        vSR->>vSR: Semantic Classification (category: math/code/general)
+        vSR->>vSR: Model Selection (within allowed models)
+        vSR-->>Gateway: Header Modifications:<br/>Host: llama3-70b-service<br/>X-MaaS-Model-Selected: llama3-70b<br/>X-Model-Cost: 0.75
+    end
+    
+    Note over Client,KServe: Phase 3: Model-Specific Authorization (Optional)
+    Gateway->>Authorino2: Validate User Access to Selected Model
+    Authorino2->>Authorino2: RBAC Check for llama3-70b
+    Authorino2-->>Gateway: Model Access Authorized
+    
+    Note over Client,KServe: Phase 4: Model Execution & Billing
+    Gateway->>KServe: Forward to Selected Model (llama3-70b)
+    KServe-->>Gateway: Model Response
+    Gateway-->>Client: Response
+    
+    Note over Billing: Billing Feedback Loop
+    Gateway->>Billing: Usage Event with X-MaaS-Model-Selected Header
+    Billing->>Billing: Calculate Cost Based on Selected Model (NOT /chat/completions)
 ```
 
-#### Phase 1: Authentication & Authorization
+#### Phase 1: Identity Authentication
 
 **Component Interactions:**
-- **maas-default-gateway**: Single entry point for all requests, applies Kuadrant policies
-- **Authorino**: Validates Service Account tokens using Kubernetes TokenReview API
-- **MaaS API**: Provides tier resolution mapping user groups to subscription levels
-- **Enhanced AuthPolicy**: Extended to include semantic routing permissions
+- **maas-default-gateway**: Single entry point applying Envoy ExtProc filter chain
+- **Authorino (Phase 1)**: Validates Service Account tokens and basic API access rights
+- **MaaS API**: Provides tier resolution and user's allowed model list
+- **AuthPolicy**: Injects authentication context headers for vSR processing
 
 **Implementation Details:**
 
@@ -434,112 +457,183 @@ sequenceDiagram
 - Comprehensive audit logging of authentication decisions
 - Token scope validation ensures least privilege access
 
-#### Phase 2: Semantic Routing
+#### Phase 2: Security & Semantic Processing (FAIL-FAST)
 
 **Component Interactions:**
-- **vSR ExtProc**: Enhanced to process authorization context
-- **ModernBERT Classifier**: Performs semantic classification with tier awareness
-- **PII Detector**: Scans content for sensitive information
-- **Jailbreak Guard**: Prevents malicious prompt injection
-- **Semantic Cache**: Optimizes performance with tier-aware caching
+- **vSR ExtProc Service**: External gRPC service with GPU access for ML inference
+- **ModernBERT Embeddings**: Vector embedding calculation for semantic similarity
+- **Security Pipeline**: PII detection and jailbreak prevention with immediate termination
+- **Model Selection Engine**: Tier-aware routing within authorized models
 
-**Implementation Details:**
+**Critical Architectural Decision: External Processing (ExtProc)**
 
-1. **Authorization Context Processing**: 🆕 **(NEW - vSR Enhancement Required)**
-   ```go
-   type AuthContext struct {
-       UserID        string   // From X-User-ID header
-       Tier          string   // From X-Tier header  
-       Groups        []string // From X-Groups header
-       AllowedModels []string // From X-Allowed-Models header
-   }
-   ```
+**Why Not Wasm?**
+- **Memory Constraints**: Wasm sandboxes have strict memory limits, insufficient for ML models
+- **GPU Access**: Vector embeddings require GPU acceleration, unavailable in Wasm
+- **Library Dependencies**: Requires PyTorch/HuggingFace libraries not available in Wasm runtime
+- **Performance**: ML inference needs optimized environments, not sandboxed execution
 
-2. **Enhanced Semantic Classification**: 
-   - Category classification (mathematics, code, creative, general) ✅ **(Supported Today)**
-   - Tier-aware model selection 🆕 **(NEW - vSR Enhancement Required)**
-   - Model access validation against allowed models list 🆕 **(NEW - vSR Enhancement Required)**
-   - Content security validation (PII, jailbreak detection) ✅ **(Supported Today)**
+**ExtProc Implementation:**
+```go
+// vSR runs as external gRPC service
+type vSRExtProcService struct {
+    mlInference    *ModernBERTInference  // Requires GPU/optimized runtime
+    securityEngine *SecurityEngine
+    modelRegistry  *ModelRegistry
+}
 
-3. **Intelligent Model Selection**: 🆕 **(NEW - vSR Enhancement Required)**
-   - **Authorized Model Filtering**: Filter models based on `X-Allowed-Models` header
-   - **Primary Selection**: Best model for category within user's allowed models
-   - **Availability Check**: Verify model availability and rate limit status *(existing logic)*
-   - **Fallback Logic**: Automatic downgrade within allowed models list
+func (s *vSRExtProcService) ProcessRequestHeaders(ctx context.Context, 
+    req *extproc.ProcessingRequest) (*extproc.ProcessingResponse, error) {
+    
+    // FAIL-FAST: Security checks first
+    if violation := s.securityEngine.CheckJailbreak(req.RequestBody); violation != nil {
+        return &extproc.ProcessingResponse{
+            Response: &extproc.ProcessingResponse_ImmediateResponse{
+                ImmediateResponse: &extproc.ImmediateResponse{
+                    Status: &typev3.HttpStatus{Code: typev3.StatusCode_Forbidden},
+                    Body:   []byte(`{"error": "Security violation detected"}`),
+                },
+            },
+        }, nil
+    }
+    
+    // Safe request: Proceed with model selection
+    selectedModel := s.selectModel(req.AuthContext, req.RequestBody)
+    
+    return &extproc.ProcessingResponse{
+        RequestHeaders: &extproc.HeaderMutation{
+            SetHeaders: []*core.HeaderValueOption{
+                {Header: &core.HeaderValue{Key: "Host", RawValue: []byte(selectedModel.Endpoint)}},
+                {Header: &core.HeaderValue{Key: "X-MaaS-Model-Selected", RawValue: []byte(selectedModel.ID)}},
+                {Header: &core.HeaderValue{Key: "X-Model-Cost", RawValue: []byte(selectedModel.Cost)}},
+            },
+        },
+    }, nil
+}
+```
 
-4. **Routing Decision Output**: 🆕 **(NEW - vSR Enhancement Required)**
-   - `X-Selected-Model`: Chosen model for execution
-   - `X-Model-Cost`: Estimated cost for the request
-   - `X-Fallback-Used`: Boolean indicating if fallback was required
-   - `X-Category`: Semantic classification result *(enhanced)*
-   - `X-Confidence`: Classification confidence score *(enhanced)*
+**Security Processing Pipeline:**
+1. **PII Detection** 🔍: Scan request content for sensitive information
+2. **Jailbreak Detection** ⛔: Check for malicious prompt injection attempts
+3. **Immediate Termination** 🚫: Return HTTP 403 if threats detected (NO MODEL ACCESS)
+4. **Safe Processing** ✅: Continue to semantic classification only if secure
 
-**Intelligence Features:**
-- **Authorization-Aware Selection**: Model selection respects user's allowed models ✅ **(Core Integration Feature)**
-- **Tier-Aware Classification**: Enhanced classification with user context 🆕 **(NEW - vSR Enhancement Required)**
-- **Semantic Caching**: Reduces redundant processing for similar queries ✅ **(Supported Today)**
-- **Content Security**: Integrated PII detection and jailbreak prevention ✅ **(Supported Today)**
+**Semantic Processing (Post-Security):**
+1. **Vector Embeddings**: Calculate ModernBERT embeddings for semantic similarity
+2. **Category Classification**: Determine request type (math/code/creative/general)
+3. **Model Selection**: Choose optimal model within user's allowed models
+4. **Billing Metadata**: Inject `X-MaaS-Model-Selected` for accurate cost accounting
 
-#### Phase 3: Model-Aware Rate Limiting
+#### Phase 3: Model-Specific Authorization (Optional)
 
 **Component Interactions:**
-- **Limitador**: Enhanced rate limiting engine with model context ✅ **(Core MaaS Component)**
-- **Enhanced RateLimitPolicy**: Model-specific rate limiting rules 🆕 **(NEW - MaaS Enhancement Required)**
-- **TokenRateLimitPolicy**: Budget-aware token consumption limits ✅ **(Supported Today)**
-- **RHOAI Model Serving**: Backend model execution platform ✅ **(Supported Today)**
+- **Authorino (Phase 2)**: Validates user access to the specific selected model
+- **RBAC Validation**: Ensures user has permissions for the chosen model endpoint
+- **Model-Specific Policies**: Fine-grained access control per model
 
-**Implementation Details:**
+#### Phase 4: Model Execution & Billing Feedback Loop
 
-1. **Model-Specific Rate Limiting**: 🆕 **(NEW - MaaS Enhancement Required)**
-   ```yaml
-   # Example: Different limits for different models
-   gpt4_enterprise: 10 req/min, 100 req/hour
-   phi4_premium: 30 req/min, 500 req/hour
-   llama3_free: 5 req/min, 50 req/hour
-   ```
+**Component Interactions:**
+- **KServe Model Serving**: Backend model execution platform ✅ **(Supported Today)**
+- **Billing Collector**: Enhanced to read dynamic model metadata for accurate accounting 🆕 **(NEW - MaaS Enhancement Required)**
+- **Usage Tracking**: Cost calculation based on actual selected model, not API path
 
-2. **Multi-Dimensional Limiting**:
-   - **User-based**: Per-user request limits ✅ **(Supported Today)**
-   - **Tier-based**: Subscription tier limits ✅ **(Supported Today)**
-   - **Model-based**: Per-model capacity limits 🆕 **(NEW - MaaS Enhancement Required)**
-   - **Cost-based**: Budget consumption tracking 🆕 **(NEW - MaaS Enhancement Required)**
+### Critical Feature: Billing Feedback Loop
 
-3. **Dynamic Rate Limiting**: 🆕 **(NEW - MaaS Enhancement Required)**
-   - Rate limits adjusted based on selected model cost
-   - Premium models have stricter limits than basic models
-   - Burst allowances for enterprise tiers
-   - Automatic fallback suggestions when limits exceeded
+**The Problem**: Without dynamic metadata, billing is inaccurate
+- User calls: `POST /chat/completions`
+- vSR routes to: `llama3-70b` (expensive) or `tiny-llama` (cheap)  
+- Billing sees: `/chat/completions` path only
+- Result: Incorrect cost calculation
 
-4. **Integration Benefits**:
-   - **Cost Control**: Prevents budget exhaustion through intelligent limiting
-   - **Resource Optimization**: Distributes load based on model capacity
-   - **User Experience**: Transparent limit communication with retry-after headers
-   - **Operational Efficiency**: Model-specific monitoring and alerting
+**The Solution**: Dynamic Billing Metadata
+```http
+# Before vSR Processing
+POST /chat/completions
+Authorization: Bearer token123
 
-**Rate Limiting Logic:**
-- **Pre-routing Limits**: Basic tier and user limits applied before model selection ✅ **(Supported Today)**
-- **Post-routing Limits**: Model-specific limits applied after semantic routing 🆕 **(NEW - MaaS Enhancement Required)**
-- **Cost-aware Limiting**: Rate limits consider estimated cost per request 🆕 **(NEW - MaaS Enhancement Required)**
-- **Fallback Integration**: Automatic suggestions for alternative models when limited 🆕 **(NEW - MaaS Enhancement Required)**
+# After vSR Processing  
+POST /chat/completions
+Authorization: Bearer token123
+Host: llama3-70b-service
+X-MaaS-Model-Selected: llama3-70b    # ← CRITICAL FOR BILLING
+X-Model-Cost: 0.75                   # ← COST OVERRIDE
+```
+
+**Billing System Enhancement:**
+```go
+type UsageEvent struct {
+    UserID           string    `json:"user_id"`
+    APIPath          string    `json:"api_path"`           // "/chat/completions"
+    SelectedModel    string    `json:"selected_model"`     // "llama3-70b" 
+    ActualCost       float64   `json:"actual_cost"`        // 0.75
+    BillingOverride  bool      `json:"billing_override"`   // true
+}
+
+func (bc *BillingCollector) ProcessUsageEvent(headers map[string]string) *UsageEvent {
+    event := &UsageEvent{
+        APIPath: headers["X-Original-Path"],
+        UserID:  headers["X-User-ID"],
+    }
+    
+    // CRITICAL: Check for dynamic model selection
+    if selectedModel := headers["X-MaaS-Model-Selected"]; selectedModel != "" {
+        event.SelectedModel = selectedModel
+        event.ActualCost = parseFloat(headers["X-Model-Cost"])
+        event.BillingOverride = true
+        
+        // Bill based on actual model, NOT API path
+        return event
+    }
+    
+    // Fallback to path-based billing
+    event.ActualCost = bc.getPathBasedCost(event.APIPath)
+    return event
+}
+```
+
+**Implementation Requirements:**
+1. **vSR ExtProc**: Must inject `X-MaaS-Model-Selected` header ✅ **(Design Complete)**
+2. **Billing Collector**: Must prioritize model metadata over API path 🆕 **(NEW - MaaS Enhancement Required)**
+3. **Usage Tracking**: Enhanced cost calculation logic 🆕 **(NEW - MaaS Enhancement Required)**
+
 
 #### Component Communication Patterns
 
-**Header-Based Context Propagation:**
-All context flows through HTTP headers, enabling stateless operation and easy debugging:
+**Complete Request Flow Headers:**
 
-```
-# Auth Phase - Authorino injects:
-Authorization: Bearer <service-account-token>
-X-User-ID: user123                                          ✅ (Supported Today)
-X-Tier: premium                                             ✅ (Supported Today)  
-X-Groups: "tier-premium-users,math-specialists"             🔍 (Likely Supported - May need array-to-CSV conversion)
-X-Allowed-Models: "phi4-mini,llama3-8b,gpt-4o-mini"        🔍 (Likely Supported + MaaS API)
+```http
+# Phase 1: Client Request
+POST /chat/completions
+Authorization: Bearer sa-token-xyz
+Content-Type: application/json
+{"messages": [{"role": "user", "content": "Solve this calculus problem..."}]}
 
-# Semantic Routing Phase - vSR adds:
-X-Selected-Model: phi4-mini                                 🆕 (NEW - vSR Enhancement Required)
-X-Model-Cost: 0.15                                          🆕 (NEW - vSR Enhancement Required)
-X-Category: mathematics                                      🆕 (NEW - vSR Enhancement Required)
-X-Fallback-Used: false                                      🆕 (NEW - vSR Enhancement Required)
+# Phase 2: After Authorino (Auth Context Added)
+POST /chat/completions
+Authorization: Bearer sa-token-xyz
+X-User-ID: math-user-123                    # ✅ Supported Today
+X-Tier: premium                             # ✅ Supported Today
+X-Groups: "tier-premium-users,specialists"  # 🔍 Likely Supported
+X-Allowed-Models: "phi4-mini,llama3-8b,llama3-70b" # 🔍 Likely Supported + New API
+
+# Phase 3: After vSR ExtProc (Security & Routing)
+POST /chat/completions
+Authorization: Bearer sa-token-xyz
+Host: llama3-70b-service                    # 🆕 NEW - Host override for routing  
+X-MaaS-Model-Selected: llama3-70b          # 🆕 NEW - Critical for billing
+X-Model-Cost: 0.75                         # 🆕 NEW - Actual cost override
+X-Category: mathematics                     # 🆕 NEW - Semantic classification
+X-Security-Passed: true                    # 🆕 NEW - Security validation status
+
+# Phase 4: Billing Collection (Usage Event)
+Event: {
+  "user_id": "math-user-123",
+  "api_path": "/chat/completions", 
+  "selected_model": "llama3-70b",
+  "actual_cost": 0.75,
+  "billing_override": true
+}
 ```
 
 **Error Handling and Fallbacks:**
@@ -597,26 +691,41 @@ The integration requires enhancements to both MaaS and vSR components:
    - Configure `X-Allowed-Models` header injection using existing `auth.metadata.*` pattern
    - Configure semantic routing RBAC rule for `semantic-router.vllm.ai/semanticRouting` resource
 
-3. **Rate Limiting Enhancements**:
-   - Model-specific rate limiting policies
+3. **Billing System Enhancements** *(Critical for Accuracy)*:
+   - Enhanced billing collector to read `X-MaaS-Model-Selected` header
+   - Dynamic cost calculation based on actual selected model (not API path)
+   - Usage event structure updates for billing override capability
+   - Cost tracking and reporting per actual model usage
+
+4. **Rate Limiting Enhancements**:
+   - Model-specific rate limiting policies 
    - Cost-aware rate limiting based on selected model
    - Dynamic rate limiting with fallback suggestions
 
 #### 🆕 **vSR Component Enhancements Required:**
-1. **Authorization Context Processing**:
-   - New `AuthContext` struct to parse authorization headers
-   - Header extraction logic for `X-User-ID`, `X-Tier`, `X-Groups`, `X-Allowed-Models`
-   - Integration with existing `RequestContext`
+1. **ExtProc Service Architecture** *(Complete Rewrite)*:
+   - External gRPC service deployment (not Wasm filter)
+   - GPU-enabled runtime for ModernBERT embeddings
+   - PyTorch/HuggingFace dependencies support
+   - High-memory allocation for ML inference
 
-2. **Tier-Aware Model Selection**:
-   - Model filtering based on user's allowed models list
-   - Enhanced semantic classification with authorization context
-   - Fallback logic within allowed models constraints
+2. **Fail-Fast Security Pipeline**:
+   - PII detection with immediate termination capability
+   - Jailbreak detection returning HTTP 403 (no model routing)
+   - Security violation logging and audit trail
+   - Content sanitization and validation
 
-3. **Enhanced Routing Output**:
-   - Model selection headers (`X-Selected-Model`, `X-Model-Cost`)
-   - Classification result headers (`X-Category`, `X-Confidence`, `X-Fallback-Used`)
-   - Error handling for unauthorized model access attempts
+3. **Authorization-Aware Processing**:
+   - Parse authentication headers from Authorino
+   - Tier-based model filtering and selection
+   - Model access validation against allowed lists
+   - Cost-aware model selection within budget constraints
+
+4. **Critical Billing Metadata Injection**:
+   - `X-MaaS-Model-Selected` header injection for accurate billing
+   - `X-Model-Cost` header for cost override
+   - Host header modification for model routing
+   - Dynamic metadata for usage tracking
 
 #### ✅ **Existing Capabilities Leveraged:**
 - **MaaS**: Token validation, tier resolution, basic RBAC, user/tier rate limiting
