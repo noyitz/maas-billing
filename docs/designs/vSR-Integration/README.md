@@ -344,14 +344,15 @@ Based on the analysis of both options, we recommend the **Hybrid Authorization-F
 
 ### 4.1 Hybrid Approach: Best of Both Worlds
 
-The solution implements a **multi-phase hybrid flow** that maximizes security, performance, and intelligent routing:
+The solution implements a **multi-phase hybrid flow** that maximizes security, performance, intelligent routing, and cost control:
 
-**🔒 Phase 1: MaaS Security-First** - Leverages proven MaaS authentication and authorization  
-**🧠 Phase 2: vSR Intelligence** - Applies semantic routing with fail-fast security controls  
-**⚖️ Phase 3: Optional Fine-Grained Auth** - Additional model-specific authorization when needed  
+**🔒 Phase 1: MaaS Security-First** - Proven MaaS authentication, authorization, and tier-based rate limiting
+**🧠 Phase 2: vSR Intelligence** - Semantic routing with fail-fast security controls  
+**⚖️ Phase 2.5: Model-Aware Rate Limiting** - Cost-aware rate limiting based on selected model
+**🔐 Phase 3: Optional Fine-Grained Auth** - Additional model-specific authorization when needed
 **📊 Phase 4: Dynamic Billing** - Accurate cost tracking based on actual model selection
 
-This hybrid approach ensures **enterprise security** while enabling **intelligent model selection** and **accurate billing**.
+This hybrid approach ensures **enterprise security**, **intelligent cost control**, and **accurate billing**.
 
 #### Architecture Overview
 
@@ -359,13 +360,14 @@ The integration uses **Envoy External Processing (ExtProc)** to seamlessly combi
 
 ### 4.2 Phase-by-Phase Implementation
 
-#### Phase 1: MaaS Security-First Authentication
+#### Phase 1: MaaS Security-First Authentication & Rate Limiting
 
 ```mermaid
 sequenceDiagram
     participant Client
     participant Gateway as maas-default-gateway
     participant Authorino
+    participant Limitador
     participant MaaSAPI as MaaS API
     
     Client->>Gateway: POST /chat/completions + Service Account Token
@@ -373,9 +375,11 @@ sequenceDiagram
     Authorino->>MaaSAPI: Tier lookup + Basic RBAC
     MaaSAPI-->>Authorino: User authorized for API access
     Authorino-->>Gateway: Auth Success + Context Headers<br/>X-User-ID, X-Tier, X-Groups
+    Gateway->>Limitador: Apply Tier-based Rate Limits
+    Limitador-->>Gateway: Rate limit check passed
 ```
 
-**Benefits**: ✅ Early authentication, proven security model, tier-based access control
+**Benefits**: ✅ Early authentication, proven security model, tier-based access control, ✅ Tier-based rate limiting
 
 #### Phase 2: vSR Intelligence with Fail-Fast Security
 
@@ -399,6 +403,28 @@ sequenceDiagram
 ```
 
 **Benefits**: ✅ Intelligent routing, fail-fast security, dynamic billing metadata
+
+#### Phase 2.5: Model-Aware Rate Limiting
+
+```mermaid
+sequenceDiagram
+    participant Gateway as maas-default-gateway
+    participant Limitador
+    participant vSR as vSR Headers
+    
+    Note over Gateway,vSR: After vSR model selection
+    Gateway->>Limitador: Apply Model-Specific Rate Limits<br/>X-MaaS-Model-Selected: llama3-70b<br/>X-Model-Cost: 0.75
+    
+    alt Model Rate Limit Exceeded
+        Limitador-->>Gateway: 429 Too Many Requests (Model-specific)
+        Gateway-->>Client: 429 + Suggested Fallback Model
+    else Model Rate Limit OK
+        Limitador-->>Gateway: Rate limit check passed
+        Note over Gateway: Proceed to model execution
+    end
+```
+
+**Benefits**: ⚖️ Cost-aware rate limiting, model-specific quotas, intelligent fallback suggestions
 
 #### Phase 3: Optional Fine-Grained Authorization
 
@@ -453,6 +479,7 @@ sequenceDiagram
 
 **Integration Benefits**:
 - **Security**: Proven MaaS authentication + vSR fail-fast security  
+- **Rate Limiting**: Tier-based + model-aware rate limiting with intelligent fallbacks
 - **Intelligence**: Tier-based model selection with semantic classification
 - **Billing**: Dynamic cost calculation based on actual model usage
 - **Performance**: Async processing and multi-layer caching
