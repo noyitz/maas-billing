@@ -586,60 +586,42 @@ This Authorization-First flow ensures enterprise-grade security while enabling t
 
 ### Implementation Requirements Summary
 
-The integration requires enhancements to both MaaS and vSR components:
+#### Authentication & Authorization
+- ✅ **Token Validation**: Standard Kubernetes `TokenReview` *(Authorino - existing)*
+- ✅ **Tier Resolution**: HTTP metadata lookup to MaaS API *(Authorino + MaaS API - existing)*
+- ✅ **Header Injection**: `X-User-ID`, `X-Tier`, `X-Groups` *(Authorino - existing)*
+- ✅ **RBAC Authorization**: Model access control *(Authorino - existing)*
+- 🆕 **AuthPolicy Configuration**: Configure semantic routing RBAC rule *(MaaS team - configuration)*
 
-#### ✅ **RHCL (Red Hat Connectivity Link) Team - No Enhancements Required:**
+#### Security & Content Protection
+- 🆕 **PII Detection**: Immediate termination for sensitive data *(vSR - new capability)*
+- 🆕 **Jailbreak Prevention**: Block malicious prompts with HTTP 403 *(vSR - new capability)*
+- 🆕 **Content Sanitization**: Validate and clean request content *(vSR - new capability)*
+- 🆕 **Security Audit Trail**: Log all security events and violations *(vSR - new capability)*
 
-The integration uses existing Authorino capabilities without requiring any new features:
-   - **Token Validation**: Standard Kubernetes `TokenReview` 
-   - **Tier Resolution**: HTTP metadata lookup to MaaS API
-   - **Header Injection**: `X-User-ID`, `X-Tier`, `X-Groups` using existing response filters
-   - **RBAC Authorization**: `kubernetesSubjectAccessReview` with semantic routing resource
+#### Intelligent Routing & Model Selection  
+- 🆕 **Semantic Classification**: ModernBERT-based category detection *(vSR - new capability)*
+- 🆕 **Tier-Based Model Selection**: Route based on user tier and budget *(vSR - new capability)*
+- 🆕 **Host Header Modification**: Dynamic model endpoint routing *(vSR - new capability)*
+- 🆕 **Performance Optimization**: Semantic caching for faster responses *(vSR - new capability)*
 
-#### 🆕 **MaaS Component Enhancements Required:**
-1. **MaaS API Extensions**:
-   - Enhanced tier resolution (existing functionality - no new endpoints needed)
+#### Rate Limiting & Cost Control
+- ✅ **Tier-Based Rate Limiting**: Existing rate limits by user tier *(Limitador - existing)*
+- 🆕 **Model-Specific Rate Limiting**: Rate limits based on selected model *(Limitador - enhancement)*
+- 🆕 **Cost-Aware Rate Limiting**: Budget enforcement and fallback *(Limitador - enhancement)*
+- 🆕 **Dynamic Rate Limiting**: Adaptive limits with suggestions *(Limitador - enhancement)*
 
-2. **AuthPolicy Configuration** *(MaaS-specific configuration using existing Authorino capabilities)*:
-   - Configure `X-Groups` header injection using existing `auth.identity.user.groups`  
-   - Configure semantic routing RBAC rule for `semantic-router.vllm.ai/semanticRouting` resource
-   - No model access metadata needed - vSR uses tier-based policies internally
+#### Billing & Usage Tracking
+- ✅ **Basic Usage Tracking**: API endpoint-based billing *(MaaS - existing)*
+- 🆕 **Dynamic Billing Metadata**: `X-MaaS-Model-Selected` header injection *(vSR - new capability)*
+- 🆕 **Accurate Cost Calculation**: Bill based on actual model used *(MaaS - enhancement)*
+- 🆕 **Enhanced Usage Events**: Model-specific cost tracking *(MaaS - enhancement)*
 
-3. **Billing System Enhancements** *(Critical for Accuracy)*:
-   - Enhanced billing collector to read `X-MaaS-Model-Selected` header
-   - Dynamic cost calculation based on actual selected model (not API path)
-   - Usage event structure updates for billing override capability
-   - Cost tracking and reporting per actual model usage
-
-4. **Rate Limiting Enhancements**:
-   - Model-specific rate limiting policies 
-   - Cost-aware rate limiting based on selected model
-   - Dynamic rate limiting with fallback suggestions
-
-#### 🆕 **vSR Component Enhancements Required:**
-1. **ExtProc Service Architecture** *(Complete Rewrite)*:
-   - External gRPC service deployment (not Wasm filter)
-   - GPU-enabled runtime for ModernBERT embeddings
-   - PyTorch/HuggingFace dependencies support
-   - High-memory allocation for ML inference
-
-2. **Fail-Fast Security Pipeline**:
-   - PII detection with immediate termination capability
-   - Jailbreak detection returning HTTP 403 (no model routing)
-   - Security violation logging and audit trail
-   - Content sanitization and validation
-
-3. **Authorization-Aware Processing**:
-   - Parse authentication headers from Authorino
-   - Tier-based model filtering and selection
-   - Model access validation against allowed lists
-   - Cost-aware model selection within budget constraints
-
-4. **Critical Billing Metadata Injection**:
-   - `X-MaaS-Model-Selected` header injection for accurate billing
-   - `X-Model-Cost` header for cost override
-   - Host header modification for model routing
-   - Dynamic metadata for usage tracking
+#### Technical Infrastructure
+- 🆕 **ExtProc Service Architecture**: External gRPC service with GPU support *(vSR - complete rewrite)*
+- 🆕 **ML Runtime Environment**: PyTorch/HuggingFace dependencies *(vSR - new infrastructure)*
+- 🆕 **Authorization Context Parsing**: Process auth headers from Authorino *(vSR - new capability)*
+- 🆕 **Header Sanitization**: Strip malicious billing headers *(Gateway - security enhancement)*
 
 #### ✅ **Existing Capabilities Leveraged:**
 - **MaaS**: Token validation, tier resolution, basic RBAC, user/tier rate limiting
