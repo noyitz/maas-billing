@@ -406,24 +406,24 @@ sequenceDiagram
         Cache-->>vSR: Return cached response/routing decision
         vSR-->>Gateway: Cached routing decision
     else Cache Miss - Full Processing
-        vSR->>vSR: 1. PII Detection (Privacy Protection)
+        vSR->>vSR: 1. PII Detection & Redaction (Privacy Protection)
         vSR->>vSR: 2. Jailbreak Detection (Security Guard)
         
-        alt Security Violation Detected
+        alt Jailbreak Detected
             vSR-->>Gateway: HTTP 403 Forbidden (IMMEDIATE TERMINATION)
             Gateway-->>Client: 403 Forbidden - Security Violation
-        else Request is Safe
+        else Request is Safe (PII Redacted)
             vSR->>vSR: 3. Semantic Classification (ModernBERT)
             vSR->>vSR: 4. Tier-Based Model Selection
             vSR->>Cache: Store classification result for future use
-            vSR-->>Gateway: Header Modifications:<br/>Host: llama3-70b-service<br/>X-MaaS-Model-Selected: llama3-70b<br/>X-Model-Cost: 0.75
+            vSR-->>Gateway: Header Modifications + Redacted Content:<br/>Host: llama3-70b-service<br/>X-MaaS-Model-Selected: llama3-70b<br/>X-Model-Cost: 0.75
         end
     end
 ```
 
 **Benefits**: 
 - 🧠 **Intelligent Routing**: ModernBERT semantic classification for optimal model selection
-- 🔒 **Privacy Protection**: PII detection prevents sensitive data exposure  
+- 🔒 **Privacy Protection**: PII detection and redaction protects sensitive data  
 - 🛡️ **Security Guard**: Jailbreak detection blocks malicious prompts
 - ⚡ **Performance**: Semantic caching reduces latency for similar requests
 - 📊 **Dynamic Billing**: Accurate cost metadata injection
@@ -594,7 +594,7 @@ This Authorization-First flow ensures enterprise-grade security while enabling t
 - 🆕 **AuthPolicy Configuration**: Configure semantic routing RBAC rule *(MaaS team - configuration)*
 
 #### Security & Content Protection
-- 🆕 **PII Detection**: Immediate termination for sensitive data *(vSR - core integration)*
+- 🆕 **PII Detection & Redaction**: Automatically mask sensitive data in requests *(vSR - core integration)*
 - 🆕 **Jailbreak Prevention**: Block malicious prompts with HTTP 403 *(vSR - core integration)*
 - 🔮 **Content Sanitization**: Validate and clean request content *(vSR - future enhancement)*
 - 🔮 **Security Audit Trail**: Log all security events and violations *(vSR - future enhancement)*
