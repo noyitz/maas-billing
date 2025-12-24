@@ -346,13 +346,22 @@ Based on the analysis of both options, we recommend the **Hybrid Authorization-F
 
 The solution implements a **multi-phase hybrid flow** that maximizes security, performance, intelligent routing, and cost control:
 
-**🔒 Phase 1: MaaS Security-First** - Proven MaaS authentication, authorization, and tier-based rate limiting
-**🧠 Phase 2: vSR Intelligence** - Semantic routing with fail-fast security controls  
-**⚖️ Phase 2.5: Model-Aware Rate Limiting** - Cost-aware rate limiting based on selected model
-**🔐 Phase 3: Optional Fine-Grained Auth** - Additional model-specific authorization when needed
-**📊 Phase 4: Dynamic Billing** - Accurate cost tracking based on actual model selection
+**🔒 Phase 1: MaaS Security-First**  
+Proven MaaS authentication, authorization, and tier-based rate limiting
 
-This hybrid approach ensures **enterprise security**, **intelligent cost control**, and **accurate billing**.
+**🧠 Phase 2: vSR Intelligence**  
+Semantic routing with fail-fast security controls
+
+**⚖️ Phase 3: Model-Aware Rate Limiting**  
+Cost-aware rate limiting based on selected model
+
+**🔐 Phase 4: Optional Fine-Grained Auth** *(Future Extension)*  
+Additional model-specific authorization when needed
+
+**📊 Phase 5: Dynamic Billing** *(Future Extension)*  
+Accurate cost tracking based on actual model selection
+
+This hybrid approach ensures **enterprise security** and **intelligent cost control**, with extensibility for advanced features.
 
 #### Architecture Overview
 
@@ -404,7 +413,7 @@ sequenceDiagram
 
 **Benefits**: ✅ Intelligent routing, fail-fast security, dynamic billing metadata
 
-#### Phase 2.5: Model-Aware Rate Limiting
+#### Phase 3: Model-Aware Rate Limiting
 
 ```mermaid
 sequenceDiagram
@@ -426,7 +435,7 @@ sequenceDiagram
 
 **Benefits**: ⚖️ Cost-aware rate limiting, model-specific quotas, intelligent fallback suggestions
 
-#### Phase 3: Optional Fine-Grained Authorization
+#### Phase 4: Optional Fine-Grained Authorization (Future Extension)
 
 ```mermaid
 sequenceDiagram
@@ -444,7 +453,7 @@ sequenceDiagram
 
 **Benefits**: ⚖️ Granular control when needed, performance optimization when skipped
 
-#### Phase 4: Model Execution & Dynamic Billing
+#### Phase 5: Model Execution & Dynamic Billing (Future Extension)
 
 ```mermaid
 sequenceDiagram
@@ -465,6 +474,10 @@ sequenceDiagram
 **Benefits**: 📊 Accurate billing, async processing, cost optimization
 
 ### 4.3 Implementation Summary
+
+**Core Integration Scope** (Phases 1-3): The vSR-MaaS integration focuses on combining MaaS authentication/rate limiting with vSR intelligent routing.
+
+**Future Extensions** (Phases 4-5): Advanced authorization and billing features that can be added later without disrupting the core integration.
 
 **Architecture Pattern**: Envoy External Processing (ExtProc) enables seamless integration between MaaS security framework and vSR intelligence without disrupting existing systems.
 
