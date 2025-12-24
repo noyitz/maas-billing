@@ -350,7 +350,7 @@ The solution implements a **multi-phase hybrid flow** that maximizes security, p
 Proven MaaS authentication, authorization, and tier-based rate limiting
 
 **🧠 Phase 2: vSR Intelligence**  
-Semantic routing with fail-fast security controls
+Semantic caching, PII detection, jailbreak prevention, and intelligent model routing
 
 **🔐 Phase 3: Optional Fine-Grained Auth** *(Future Extension)*  
 Additional model-specific authorization when needed
@@ -390,28 +390,43 @@ sequenceDiagram
 
 **Benefits**: ✅ Early authentication, proven security model, tier-based access control, ✅ Tier-based rate limiting
 
-#### Phase 2: vSR Intelligence with Fail-Fast Security
+#### Phase 2: vSR Intelligence with Advanced Features
 
 ```mermaid
 sequenceDiagram
     participant Gateway as maas-default-gateway
     participant vSR as vSR ExtProc Service
+    participant Cache as Semantic Cache
     participant Client
     
     Gateway->>vSR: ExtProc Call with Request Body + Auth Context
-    vSR->>vSR: PII Detection + Jailbreak Detection
+    vSR->>Cache: Check semantic cache for similar request
     
-    alt Security Violation Detected
-        vSR-->>Gateway: HTTP 403 Forbidden (IMMEDIATE TERMINATION)
-        Gateway-->>Client: 403 Forbidden - Security Violation
-    else Request is Safe
-        vSR->>vSR: Semantic Classification (category: math/code/general)
-        vSR->>vSR: Tier-Based Model Selection
-        vSR-->>Gateway: Header Modifications:<br/>Host: llama3-70b-service<br/>X-MaaS-Model-Selected: llama3-70b<br/>X-Model-Cost: 0.75
+    alt Cache Hit - Performance Boost
+        Cache-->>vSR: Return cached response/routing decision
+        vSR-->>Gateway: Cached routing decision
+    else Cache Miss - Full Processing
+        vSR->>vSR: 1. PII Detection (Privacy Protection)
+        vSR->>vSR: 2. Jailbreak Detection (Security Guard)
+        
+        alt Security Violation Detected
+            vSR-->>Gateway: HTTP 403 Forbidden (IMMEDIATE TERMINATION)
+            Gateway-->>Client: 403 Forbidden - Security Violation
+        else Request is Safe
+            vSR->>vSR: 3. Semantic Classification (ModernBERT)
+            vSR->>vSR: 4. Tier-Based Model Selection
+            vSR->>Cache: Store classification result for future use
+            vSR-->>Gateway: Header Modifications:<br/>Host: llama3-70b-service<br/>X-MaaS-Model-Selected: llama3-70b<br/>X-Model-Cost: 0.75
+        end
     end
 ```
 
-**Benefits**: ✅ Intelligent routing, fail-fast security, dynamic billing metadata
+**Benefits**: 
+- 🧠 **Intelligent Routing**: ModernBERT semantic classification for optimal model selection
+- 🔒 **Privacy Protection**: PII detection prevents sensitive data exposure  
+- 🛡️ **Security Guard**: Jailbreak detection blocks malicious prompts
+- ⚡ **Performance**: Semantic caching reduces latency for similar requests
+- 📊 **Dynamic Billing**: Accurate cost metadata injection
 
 #### Phase 3: Optional Fine-Grained Authorization (Future Extension)
 
@@ -491,11 +506,12 @@ sequenceDiagram
 **Core Technologies**: ✅ MaaS (Authorino, Limitador) + 🆕 vSR (Python ExtProc)
 
 **Integration Benefits**:
-- **Security**: Proven MaaS authentication + vSR fail-fast security  
+- **Security**: Proven MaaS authentication + vSR PII detection + jailbreak prevention  
 - **Rate Limiting**: Tier-based + model-aware rate limiting with intelligent fallbacks
-- **Intelligence**: Tier-based model selection with semantic classification
+- **Intelligence**: ModernBERT semantic classification with intelligent model routing
+- **Performance**: Semantic caching + async processing for optimal latency
+- **Privacy**: Automated PII detection and protection across all requests
 - **Billing**: Dynamic cost calculation based on actual model usage
-- **Performance**: Async processing and multi-layer caching
 
 **Component Interactions:**
 - **KServe Model Serving**: Backend model execution platform ✅ **(Supported Today)**
