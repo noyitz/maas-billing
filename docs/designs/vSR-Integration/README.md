@@ -352,11 +352,11 @@ Proven MaaS authentication, authorization, and tier-based rate limiting
 **🧠 Phase 2: vSR Intelligence**  
 Semantic routing with fail-fast security controls
 
-**⚖️ Phase 3: Model-Aware Rate Limiting**  
-Cost-aware rate limiting based on selected model
-
-**🔐 Phase 4: Optional Fine-Grained Auth** *(Future Extension)*  
+**🔐 Phase 3: Optional Fine-Grained Auth** *(Future Extension)*  
 Additional model-specific authorization when needed
+
+**⚖️ Phase 4: Model-Aware Rate Limiting**  
+Cost-aware rate limiting based on selected model
 
 **📊 Phase 5: Dynamic Billing** *(Future Extension)*  
 Accurate cost tracking based on actual model selection
@@ -413,29 +413,7 @@ sequenceDiagram
 
 **Benefits**: ✅ Intelligent routing, fail-fast security, dynamic billing metadata
 
-#### Phase 3: Model-Aware Rate Limiting
-
-```mermaid
-sequenceDiagram
-    participant Gateway as maas-default-gateway
-    participant Limitador
-    participant vSR as vSR Headers
-    
-    Note over Gateway,vSR: After vSR model selection
-    Gateway->>Limitador: Apply Model-Specific Rate Limits<br/>X-MaaS-Model-Selected: llama3-70b<br/>X-Model-Cost: 0.75
-    
-    alt Model Rate Limit Exceeded
-        Limitador-->>Gateway: 429 Too Many Requests (Model-specific)
-        Gateway-->>Client: 429 + Suggested Fallback Model
-    else Model Rate Limit OK
-        Limitador-->>Gateway: Rate limit check passed
-        Note over Gateway: Proceed to model execution
-    end
-```
-
-**Benefits**: ⚖️ Cost-aware rate limiting, model-specific quotas, intelligent fallback suggestions
-
-#### Phase 4: Optional Fine-Grained Authorization (Future Extension)
+#### Phase 3: Optional Fine-Grained Authorization (Future Extension)
 
 ```mermaid
 sequenceDiagram
@@ -451,7 +429,29 @@ sequenceDiagram
     end
 ```
 
-**Benefits**: ⚖️ Granular control when needed, performance optimization when skipped
+**Benefits**: 🔐 Granular control when needed, performance optimization when skipped
+
+#### Phase 4: Model-Aware Rate Limiting
+
+```mermaid
+sequenceDiagram
+    participant Gateway as maas-default-gateway
+    participant Limitador
+    participant vSR as vSR Headers
+    
+    Note over Gateway,vSR: After vSR model selection and authorization
+    Gateway->>Limitador: Apply Model-Specific Rate Limits<br/>X-MaaS-Model-Selected: llama3-70b<br/>X-Model-Cost: 0.75
+    
+    alt Model Rate Limit Exceeded
+        Limitador-->>Gateway: 429 Too Many Requests (Model-specific)
+        Gateway-->>Client: 429 + Suggested Fallback Model
+    else Model Rate Limit OK
+        Limitador-->>Gateway: Rate limit check passed
+        Note over Gateway: Proceed to model execution
+    end
+```
+
+**Benefits**: ⚖️ Cost-aware rate limiting, model-specific quotas, intelligent fallback suggestions
 
 #### Phase 5: Model Execution & Dynamic Billing (Future Extension)
 
@@ -475,9 +475,9 @@ sequenceDiagram
 
 ### 4.3 Implementation Summary
 
-**Core Integration Scope** (Phases 1-3): The vSR-MaaS integration focuses on combining MaaS authentication/rate limiting with vSR intelligent routing.
+**Core Integration Scope** (Phases 1-2): The vSR-MaaS integration focuses on combining MaaS authentication/rate limiting with vSR intelligent routing.
 
-**Future Extensions** (Phases 4-5): Advanced authorization and billing features that can be added later without disrupting the core integration.
+**Future Extensions** (Phases 3-5): Additional authorization, model-aware rate limiting, and billing features that can be added later without disrupting the core integration.
 
 **Architecture Pattern**: Envoy External Processing (ExtProc) enables seamless integration between MaaS security framework and vSR intelligence without disrupting existing systems.
 
