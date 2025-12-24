@@ -490,9 +490,9 @@ sequenceDiagram
 
 ### 4.3 Implementation Summary
 
-**Core Integration Scope** (Phases 1-2): The vSR-MaaS integration focuses on combining MaaS authentication/rate limiting with vSR intelligent routing.
+**Core Integration Scope** (Phases 1-2, 4): The vSR-MaaS integration focuses on combining MaaS authentication/rate limiting with vSR intelligent routing and model-aware rate limiting.
 
-**Future Extensions** (Phases 3-5): Additional authorization, model-aware rate limiting, and billing features that can be added later without disrupting the core integration.
+**Future Extensions** (Phases 3, 5): Optional fine-grained authorization and enhanced billing features that can be added later without disrupting the core integration.
 
 **Architecture Pattern**: Envoy External Processing (ExtProc) enables seamless integration between MaaS security framework and vSR intelligence without disrupting existing systems.
 
