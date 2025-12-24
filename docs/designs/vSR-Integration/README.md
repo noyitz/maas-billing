@@ -587,41 +587,38 @@ This Authorization-First flow ensures enterprise-grade security while enabling t
 ### Implementation Requirements Summary
 
 #### Authentication & Authorization
-- ✅ **Token Validation**: Standard Kubernetes `TokenReview` *(Authorino - existing)*
-- ✅ **Tier Resolution**: HTTP metadata lookup to MaaS API *(Authorino + MaaS API - existing)*
-- ✅ **Header Injection**: `X-User-ID`, `X-Tier`, `X-Groups` *(Authorino - existing)*
-- ✅ **RBAC Authorization**: Model access control *(Authorino - existing)*
-- 🆕 **AuthPolicy Configuration**: Configure semantic routing RBAC rule *(MaaS team - configuration)*
+- ✅ **Token Validation**: Kubernetes `TokenReview` for Service Account tokens *(Authorino - existing)*
+- ✅ **Tier Resolution**: HTTP metadata lookup to MaaS API for user tier mapping *(Authorino + MaaS API - existing)*
+- ✅ **Header Injection**: `X-User-ID`, `X-Tier`, `X-Groups` via JSON injection *(Authorino - existing)*
+- ✅ **RBAC Authorization**: SubjectAccessReview for model access control *(Authorino - existing)*
+- 🆕 **Semantic Routing RBAC**: New resource `semantic-router.vllm.ai/semanticRouting` *(MaaS - needed for vSR access control)*
 
-#### Security & Content Protection
-- 🆕 **PII Detection & Redaction**: Automatically mask sensitive data in requests *(vSR - core integration)*
-- 🆕 **Jailbreak Prevention**: Block malicious prompts with HTTP 403 *(vSR - core integration)*
-- 🔮 **Content Sanitization**: Validate and clean request content *(vSR - future enhancement)*
-- 🔮 **Security Audit Trail**: Log all security events and violations *(vSR - future enhancement)*
+#### Semantic Routing Core (vSR Integration)
+- 🆕 **Intelligent Model Router**: Deploy vLLM Semantic Router with MaaS backends *(vSR - needed to replace manual model selection)*
+- 🆕 **Authorization Context Integration**: Parse MaaS auth headers (`X-Tier`, `X-User-ID`) *(vSR - needed for tier-aware routing)*
+- 🆕 **Envoy ExtProc Service**: Deploy as External Processor, not standalone *(vSR - needed for MaaS gateway integration)*
+- 🆕 **Model Registry Integration**: Connect to KServe/LLMInferenceService discovery *(vSR - needed for dynamic model awareness)*
 
-#### Intelligent Routing & Model Selection  
-- 🆕 **Semantic Classification**: ModernBERT-based category detection *(vSR - core integration)*
-- 🆕 **Tier-Based Model Selection**: Route based on user tier and budget *(vSR - core integration)*
-- 🆕 **Host Header Modification**: Dynamic model endpoint routing *(vSR - core integration)*
-- 🆕 **Performance Optimization**: Semantic caching for faster responses *(vSR - core integration)*
+#### Security & Content Protection (vSR Built-ins Enhanced)
+- ✅ **PII Detection**: vSR includes PII scanning capabilities *(vSR - existing, but needs MaaS tier policy integration)*
+- ✅ **Jailbreak Prevention**: vSR includes prompt guard protection *(vSR - existing, but needs MaaS policy integration)*
+- 🆕 **Tier-Based Security Policies**: Different PII/security rules per MaaS tier *(vSR + MaaS - needed for enterprise compliance)*
 
 #### Rate Limiting & Cost Control
-- ✅ **Tier-Based Rate Limiting**: Existing rate limits by user tier *(Limitador - existing)*
-- 🆕 **Model-Specific Rate Limiting**: Rate limits based on selected model *(Limitador - core integration)*
-- 🔮 **Cost-Aware Rate Limiting**: Budget enforcement and fallback *(Limitador - future enhancement)*
-- 🔮 **Dynamic Rate Limiting**: Adaptive limits with suggestions *(Limitador - future enhancement)*
+- ✅ **User/Tier Rate Limiting**: Request and token limits per tier *(Limitador - existing)*
+- 🆕 **Model-Aware Rate Limiting**: Apply different limits based on selected model cost *(Limitador - needed for cost control)*
+- 🔮 **Adaptive Throttling**: Dynamic rate adjustment based on model availability *(Future - smart cost optimization)*
 
-#### Billing & Usage Tracking
-- ✅ **Basic Usage Tracking**: API endpoint-based billing *(MaaS - existing)*
-- 🔮 **Dynamic Billing Metadata**: `X-MaaS-Model-Selected` header injection *(vSR - future enhancement)*
-- 🔮 **Accurate Cost Calculation**: Bill based on actual model used *(MaaS - future enhancement)*
-- 🔮 **Enhanced Usage Events**: Model-specific cost tracking *(MaaS - future enhancement)*
+#### Intelligent Features (vSR Core Enhanced)
+- ✅ **Semantic Classification**: vSR includes intent classification *(vSR - existing, but needs tier-aware enhancement)*
+- ✅ **Semantic Caching**: vSR includes similarity-based caching *(vSR - existing, but needs user isolation)*
+- 🆕 **Tier-Based Model Selection**: Route based on user tier and model access *(vSR - needed for MaaS tier enforcement)*
+- 🆕 **Dynamic Endpoint Routing**: Modify `Host` header for KServe model selection *(vSR - needed for MaaS model discovery)*
 
-#### Technical Infrastructure
-- 🆕 **ExtProc Service Architecture**: External gRPC service with GPU support *(vSR - core integration)*
-- 🆕 **ML Runtime Environment**: PyTorch/HuggingFace dependencies *(vSR - core integration)*
-- 🆕 **Authorization Context Parsing**: Process auth headers from Authorino *(vSR - core integration)*
-- 🆕 **Header Sanitization**: Strip malicious billing headers *(Gateway - core integration)*
+#### Usage Tracking & Observability
+- ✅ **Basic Usage Metrics**: Request/token tracking via Limitador *(MaaS - existing)*
+- 🔮 **Semantic Usage Analytics**: Track routing decisions and model performance *(Future - enhanced analytics)*
+- 🔮 **Dynamic Billing Metadata**: `X-Selected-Model` header for accurate billing *(Future - cost optimization)*
 
 #### ✅ **Existing Capabilities Leveraged:**
 - **MaaS**: Token validation, tier resolution, basic RBAC, user/tier rate limiting
