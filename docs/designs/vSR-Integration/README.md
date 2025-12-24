@@ -400,28 +400,50 @@ sequenceDiagram
         vSR-->>Gateway: Header Modifications:<br/>Host: llama3-70b-service<br/>X-MaaS-Model-Selected: llama3-70b<br/>X-Model-Cost: 0.75
     end
     
-    Note over Client,KServe: Phase 3: Model-Specific Authorization (Optional)
-    Gateway->>Authorino2: Validate User Access to Selected Model
-    Authorino2->>Authorino2: RBAC Check for llama3-70b
-    Authorino2-->>Gateway: Model Access Authorized
+    Note over Client,KServe: Phase 3: Model-Specific Authorization (OPTIONAL - Skip for Most Deployments)
+    alt High-Security Mode Enabled
+        Gateway->>Authorino2: Validate User Access to Selected Model
+        Authorino2->>Authorino2: RBAC Check for llama3-70b
+        Authorino2-->>Gateway: Model Access Authorized
+    else Standard Mode (Recommended)
+        Note over Gateway: Skip - vSR already enforced tier-based access
+    end
     
     Note over Client,KServe: Phase 4: Model Execution & Billing
     Gateway->>KServe: Forward to Selected Model (llama3-70b)
     KServe-->>Gateway: Model Response
     Gateway-->>Client: Response
     
-    Note over Billing: Billing Feedback Loop
-    Gateway->>Billing: Usage Event with X-MaaS-Model-Selected Header
-    Billing->>Billing: Calculate Cost Based on Selected Model (NOT /chat/completions)
+    Note over Billing: Billing Feedback Loop (Asynchronous)
+    Gateway->>Billing: Usage Event with X-MaaS-Model-Selected Header (Non-Blocking)
+    Billing->>Billing: Calculate Cost Based on Selected Model (Async Processing)
 ```
 
-#### Phase 1: Identity Authentication
+#### Phase 1: Identity Authentication & Header Sanitization
 
 **Component Interactions:**
 - **maas-default-gateway**: Single entry point applying Envoy ExtProc filter chain
-- **Authorino (Phase 1)**: Validates Service Account tokens and basic API access rights
-- **MaaS API**: Provides tier resolution and user's allowed model list
+- **Header Sanitization**: **CRITICAL SECURITY** - Strips malicious billing headers from client
+- **Authorino (Phase 1)**: Validates Service Account tokens and basic API access rights  
+- **MaaS API**: Provides tier resolution and user's allowed model tier policy
 - **AuthPolicy**: Injects authentication context headers for vSR processing
+
+**🚨 CRITICAL SECURITY REQUIREMENT:**
+```yaml
+# Envoy configuration MUST sanitize client headers
+http_filters:
+- name: envoy.filters.http.header_to_metadata
+  typed_config:
+    "@type": type.googleapis.com/envoy.extensions.filters.http.header_to_metadata.v3.Config
+    request_rules:
+    # CRITICAL: Remove any client-injected billing headers to prevent fraud
+    - header: "X-MaaS-Model-Selected"
+      remove: true  # Strip from client requests
+    - header: "X-Model-Cost" 
+      remove: true  # Strip from client requests
+    - header: "X-Security-Passed"
+      remove: true  # Strip from client requests
+```
 
 **Implementation Details:**
 
@@ -439,17 +461,16 @@ sequenceDiagram
    - Basic tier access ✅ **(Supported Today)**: Uses Kubernetes SubjectAccessReview for model serving
    - Semantic routing access 🆕 **(NEW - MaaS Enhancement Required)**: Additional RBAC rule for `semantic-router.vllm.ai/semanticRouting` resource
 
-4. **Model Access Lookup**: 🆕 **(NEW - MaaS API Only)**
-   - New MaaS API endpoint: `/v1/models/allowed` to provide tier-specific model lists *(MaaS Team)*
-   - MaaS AuthPolicy configuration to call new endpoint using existing metadata lookup *(MaaS Team)*
-   - Cached model access results for performance ✅ **(Existing Authorino capability)**
+4. **Tier-Based Model Access**: ✅ **(Design Optimized - No New APIs Required)**
+   - vSR uses tier information to determine model access via embedded tier policies *(vSR Team)*
+   - No need for per-request model lists - reduces header bloat and improves performance *(Design Decision)*
+   - Tier-to-model mapping cached within vSR for optimal performance *(vSR Team)*
 
 5. **Context Enrichment**:
    - Authorino injects authentication context into headers using **existing generic capabilities**:
      - `X-User-ID`: Extracted user identifier ✅ **(Supported Today)**
      - `X-Tier`: User's subscription tier ✅ **(Supported Today)**
      - `X-Groups`: User's group memberships ✅ **(Likely Supported - Uses existing `auth.identity.user.groups`)**
-     - `X-Allowed-Models`: Models accessible to user's tier ✅ **(Likely Supported - Uses existing `auth.metadata.*` pattern)**
 
 **Security Controls:**
 - Early rejection of invalid tokens (before semantic processing)
@@ -497,8 +518,9 @@ func (s *vSRExtProcService) ProcessRequestHeaders(ctx context.Context,
         }, nil
     }
     
-    // Safe request: Proceed with model selection
-    selectedModel := s.selectModel(req.AuthContext, req.RequestBody)
+    // Safe request: Proceed with tier-based model selection
+    userTier := req.Headers["X-Tier"]
+    selectedModel := s.selectModelForTier(userTier, req.RequestBody)
     
     return &extproc.ProcessingResponse{
         RequestHeaders: &extproc.HeaderMutation{
@@ -524,11 +546,21 @@ func (s *vSRExtProcService) ProcessRequestHeaders(ctx context.Context,
 3. **Model Selection**: Choose optimal model within user's allowed models
 4. **Billing Metadata**: Inject `X-MaaS-Model-Selected` for accurate cost accounting
 
-#### Phase 3: Model-Specific Authorization (Optional)
+#### Phase 3: Model-Specific Authorization (Optional - Only for High-Security Deployments)
 
-**Component Interactions:**
+**When to Use:**
+- **High-Security Environments**: When model-specific access control is required beyond tier-based access
+- **Compliance Requirements**: When audit trails require explicit per-model authorization
+- **Multi-Tenant Scenarios**: When different users within same tier need different model access
+
+**When to Skip (Recommended for Most Deployments):**
+- **Tier-Based Access**: When vSR's tier-based model selection provides sufficient access control
+- **Performance Priority**: When minimizing latency is more important than granular authorization
+- **Trusted vSR**: When vSR ExtProc service is trusted to enforce tier-based model access
+
+**Component Interactions (when enabled):**
 - **Authorino (Phase 2)**: Validates user access to the specific selected model
-- **RBAC Validation**: Ensures user has permissions for the chosen model endpoint
+- **RBAC Validation**: Ensures user has permissions for the chosen model endpoint  
 - **Model-Specific Policies**: Fine-grained access control per model
 
 #### Phase 4: Model Execution & Billing Feedback Loop
@@ -560,7 +592,7 @@ X-MaaS-Model-Selected: llama3-70b    # ← CRITICAL FOR BILLING
 X-Model-Cost: 0.75                   # ← COST OVERRIDE
 ```
 
-**Billing System Enhancement:**
+**Billing System Enhancement (Asynchronous Processing):**
 ```go
 type UsageEvent struct {
     UserID           string    `json:"user_id"`
@@ -568,9 +600,11 @@ type UsageEvent struct {
     SelectedModel    string    `json:"selected_model"`     // "llama3-70b" 
     ActualCost       float64   `json:"actual_cost"`        // 0.75
     BillingOverride  bool      `json:"billing_override"`   // true
+    Timestamp        time.Time `json:"timestamp"`
 }
 
-func (bc *BillingCollector) ProcessUsageEvent(headers map[string]string) *UsageEvent {
+// Asynchronous billing collection - does not block request flow
+func (bc *BillingCollector) ProcessUsageEventAsync(headers map[string]string) *UsageEvent {
     event := &UsageEvent{
         APIPath: headers["X-Original-Path"],
         UserID:  headers["X-User-ID"],
@@ -582,13 +616,22 @@ func (bc *BillingCollector) ProcessUsageEvent(headers map[string]string) *UsageE
         event.ActualCost = parseFloat(headers["X-Model-Cost"])
         event.BillingOverride = true
         
-        // Bill based on actual model, NOT API path
+        // Process billing asynchronously - enqueue event
+        go bc.EnqueueBillingEvent(event)  // Non-blocking async processing
         return event
     }
     
     // Fallback to path-based billing
     event.ActualCost = bc.getPathBasedCost(event.APIPath)
+    go bc.EnqueueBillingEvent(event)  // Also async for consistency
     return event
+}
+
+// Asynchronous billing queue processor
+func (bc *BillingCollector) EnqueueBillingEvent(event *UsageEvent) {
+    // Add to queue/topic for async processing (e.g., Kafka, Redis Queue)
+    bc.billingQueue.Enqueue(event)
+    // Does not block request processing
 }
 ```
 
@@ -615,7 +658,6 @@ Authorization: Bearer sa-token-xyz
 X-User-ID: math-user-123                    # ✅ Supported Today
 X-Tier: premium                             # ✅ Supported Today
 X-Groups: "tier-premium-users,specialists"  # 🔍 Likely Supported
-X-Allowed-Models: "phi4-mini,llama3-8b,llama3-70b" # 🔍 Likely Supported + New API
 
 # Phase 3: After vSR ExtProc (Security & Routing)
 POST /chat/completions
@@ -650,6 +692,108 @@ Event: {
 - **Circuit Breakers**: Protection against cascading failures 🆕 **(NEW - vSR Enhancement Required)**
 
 This Authorization-First flow ensures enterprise-grade security while enabling the intelligent routing capabilities of vSR, creating a robust and scalable foundation for the integrated platform.
+
+### Failure Modes and Recovery
+
+#### vSR ExtProc Service Failure Scenarios
+
+**1. ExtProc Service Unavailable (Complete Failure)**
+```yaml
+# Envoy configuration for vSR failure handling
+http_filters:
+- name: envoy.filters.http.ext_proc
+  typed_config:
+    "@type": type.googleapis.com/envoy.extensions.filters.http.ext_proc.v3.ExternalProcessor
+    grpc_service:
+      envoy_grpc:
+        cluster_name: vsr-extproc-service
+    failure_mode_allow: true  # CRITICAL: Allow requests to pass through on failure
+    message_timeout: 5s       # Timeout for ExtProc response
+```
+
+**Behavior**: When vSR ExtProc is completely unavailable:
+- **✅ Requests Continue**: Envoy bypasses vSR and routes to default model (e.g., `llama3-8b`)
+- **✅ Authentication Still Works**: MaaS auth/rate limiting continues normally
+- **❌ No Semantic Routing**: All requests go to fallback model regardless of content
+- **❌ No Security Checks**: PII/jailbreak detection bypassed
+
+**2. ExtProc Service Slow/Timeout**
+```go
+// Circuit breaker pattern in vSR ExtProc
+type CircuitBreakerConfig struct {
+    MaxFailures    int           `yaml:"max_failures"`     // 5
+    ResetTimeout   time.Duration `yaml:"reset_timeout"`    // 30s
+    RequestTimeout time.Duration `yaml:"request_timeout"`  // 3s
+}
+
+func (s *vSRExtProcService) ProcessWithCircuitBreaker(req *extproc.ProcessingRequest) {
+    if s.circuitBreaker.IsOpen() {
+        // Fast fail to default model
+        return s.getDefaultModelResponse()
+    }
+    
+    // Attempt processing with timeout
+    ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+    defer cancel()
+    
+    result, err := s.processRequestWithTimeout(ctx, req)
+    if err != nil {
+        s.circuitBreaker.RecordFailure()
+        return s.getDefaultModelResponse()
+    }
+    
+    s.circuitBreaker.RecordSuccess()
+    return result
+}
+```
+
+**3. Partial Component Failures**
+- **Classifier Failure**: Falls back to default model without semantic classification
+- **PII Detector Failure**: **SECURITY RISK** - Should fail closed (reject request) or disable PII-sensitive models
+- **Cache Failure**: Continues without caching, impacts performance but not functionality
+- **Model Registry Failure**: Falls back to predefined tier-based model selection
+
+#### Failure Recovery Strategies
+
+**1. Graceful Degradation Priorities**
+```yaml
+# Failure handling priority order
+failure_handling:
+  security_failures:
+    pii_detector_down: "reject_request"      # FAIL CLOSED for security
+    jailbreak_detector_down: "reject_request" # FAIL CLOSED for security
+    
+  performance_failures:
+    classifier_down: "use_default_model"     # FAIL OPEN for availability
+    cache_down: "continue_without_cache"    # FAIL OPEN for availability
+    
+  integration_failures:
+    model_registry_down: "use_tier_fallback" # FAIL OPEN with tier-based routing
+    billing_queue_down: "log_locally"       # FAIL OPEN but preserve billing data
+```
+
+**2. Monitoring and Alerting**
+```yaml
+# Critical failure monitoring
+alerts:
+  - name: vSRExtProcDown
+    condition: up{service="vsr-extproc"} == 0
+    for: 30s
+    severity: critical
+    action: page_oncall
+    
+  - name: vSRSecurityComponentFailed  
+    condition: rate(vsr_security_failures_total[5m]) > 0
+    for: 1m
+    severity: critical
+    action: page_security_team
+    
+  - name: vSRFallbackModeActive
+    condition: vsr_fallback_mode_active == 1
+    for: 5m
+    severity: warning
+    action: alert_team
+```
 
 ### Implementation Requirements Summary
 
