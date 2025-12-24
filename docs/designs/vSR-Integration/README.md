@@ -588,28 +588,13 @@ This Authorization-First flow ensures enterprise-grade security while enabling t
 
 The integration requires enhancements to both MaaS and vSR components:
 
-#### 🆕 **RHCL (Red Hat Connectivity Link) Team Enhancements Required:**
+#### ✅ **RHCL (Red Hat Connectivity Link) Team - No Enhancements Required:**
 
-**Analysis**: After reviewing current Authorino capabilities, most required features are **already supported generically**:
-
-1. **✅ Already Supported - No RHCL Work Needed**:
-   - **Response Header Injection**: `response.success.filters.identity.json.properties` already supports arbitrary headers
-   - **Expression-Based Values**: Can use `auth.identity.user.groups` and `auth.metadata.*` in expressions
-   - **Multiple Metadata Lookups**: Already supports multiple HTTP metadata lookups
-   - **Custom RBAC Resources**: Already supports arbitrary resource groups in `kubernetesSubjectAccessReview`
-
-2. **🔍 Potential Generic Enhancement** *(if not already supported)*:
-   - **Array Header Injection**: If `auth.identity.user.groups` (array) cannot be directly injected as header value
-   - **JSON Array to CSV Conversion**: Generic expression function to convert JSON arrays to comma-separated strings
-   
-   **Proposed Generic Solution**:
-   ```yaml
-   # Generic array-to-string conversion function (if needed)
-   groups:
-     expression: 'auth.identity.user.groups | join(",")'  # Generic join function
-   allowedModels:
-     expression: 'auth.metadata.allowedModels["models"] | join(",")'  # Same function
-   ```
+The integration uses existing Authorino capabilities without requiring any new features:
+   - **Token Validation**: Standard Kubernetes `TokenReview` 
+   - **Tier Resolution**: HTTP metadata lookup to MaaS API
+   - **Header Injection**: `X-User-ID`, `X-Tier`, `X-Groups` using existing response filters
+   - **RBAC Authorization**: `kubernetesSubjectAccessReview` with semantic routing resource
 
 #### 🆕 **MaaS Component Enhancements Required:**
 1. **MaaS API Extensions**:
