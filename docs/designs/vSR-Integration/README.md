@@ -620,9 +620,9 @@ This Authorization-First flow ensures enterprise-grade security while enabling t
 - 🆕 **Tier-Based Model Selection**: Route based on user tier and model access permissions
   *Enhance model selection logic to respect MaaS tier limitations and budgets*
   *Needed for enforcing business rules and preventing unauthorized expensive model access*
-- 🆕 **Dynamic Endpoint Routing**: Modify `Host` header for KServe model selection
-  *Dynamically route to specific model endpoints based on routing decisions*
-  *Needed for transparent model selection without client-side routing complexity*
+- 🆕 **Path-Based Model Routing**: Modify request path to route to selected model endpoint
+  *Rewrite request path from generic `/chat/completions` to model-specific path*
+  *Needed to leverage MaaS's existing path-based routing to KServe services*
 - 🆕 **User Isolation**: Enhance semantic caching with user/tenant boundaries
   *Ensure cache isolation between different users and tiers for security*
   *Needed for multi-tenant security and preventing data leakage between users*
