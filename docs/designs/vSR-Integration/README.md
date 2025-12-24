@@ -383,7 +383,7 @@ sequenceDiagram
     Gateway->>Authorino: Apply AuthPolicy (Identity Check)
     Authorino->>MaaSAPI: Tier lookup + Basic RBAC
     MaaSAPI-->>Authorino: User authorized for API access
-    Authorino-->>Gateway: Auth Success + Context Headers<br/>X-User-ID, X-Tier, X-Groups, X-Allowed-Models
+    Authorino-->>Gateway: Auth Success + Context Headers<br/>X-User-ID, X-Tier, X-Groups
     
     Note over Client,KServe: Phase 2: Security & Semantic Processing (FAIL-FAST)
     Gateway->>vSR: ExtProc Call with Request Body + Auth Context
@@ -494,44 +494,42 @@ http_filters:
 - **Library Dependencies**: Requires PyTorch/HuggingFace libraries not available in Wasm runtime
 - **Performance**: ML inference needs optimized environments, not sandboxed execution
 
-**ExtProc Implementation:**
-```go
-// vSR runs as external gRPC service
-type vSRExtProcService struct {
-    mlInference    *ModernBERTInference  // Requires GPU/optimized runtime
-    securityEngine *SecurityEngine
-    modelRegistry  *ModelRegistry
-}
+**ExtProc Implementation (Python - Production Ready):**
+```python
+# vSR runs as a Python gRPC service implementing Envoy ExternalProcessor
+import grpc
+from envoy.service.ext_proc.v3 import external_processor_pb2_grpc
+from semantic_router import Route, RouteLayer
 
-func (s *vSRExtProcService) ProcessRequestHeaders(ctx context.Context, 
-    req *extproc.ProcessingRequest) (*extproc.ProcessingResponse, error) {
-    
-    // FAIL-FAST: Security checks first
-    if violation := s.securityEngine.CheckJailbreak(req.RequestBody); violation != nil {
-        return &extproc.ProcessingResponse{
-            Response: &extproc.ProcessingResponse_ImmediateResponse{
-                ImmediateResponse: &extproc.ImmediateResponse{
-                    Status: &typev3.HttpStatus{Code: typev3.StatusCode_Forbidden},
-                    Body:   []byte(`{"error": "Security violation detected"}`),
-                },
-            },
-        }, nil
-    }
-    
-    // Safe request: Proceed with tier-based model selection
-    userTier := req.Headers["X-Tier"]
-    selectedModel := s.selectModelForTier(userTier, req.RequestBody)
-    
-    return &extproc.ProcessingResponse{
-        RequestHeaders: &extproc.HeaderMutation{
-            SetHeaders: []*core.HeaderValueOption{
-                {Header: &core.HeaderValue{Key: "Host", RawValue: []byte(selectedModel.Endpoint)}},
-                {Header: &core.HeaderValue{Key: "X-MaaS-Model-Selected", RawValue: []byte(selectedModel.ID)}},
-                {Header: &core.HeaderValue{Key: "X-Model-Cost", RawValue: []byte(selectedModel.Cost)}},
-            },
-        },
-    }, nil
-}
+class vSRExtProcService(external_processor_pb2_grpc.ExternalProcessorServicer):
+    def __init__(self):
+        # Native Python loading of ModernBERT and vLLM components
+        self.encoder = ModernBertEncoder(device="cuda")
+        self.security = SecurityEngine(fail_fast=True)
+        self.routes = self.load_tier_routes()  # Loads routes per tier
+
+    async def Process(self, request_iterator, context):
+        async for req in request_iterator:
+            if req.HasField("request_headers"):
+                # 1. Extract Auth Context
+                headers = self.get_headers(req.request_headers)
+                user_tier = headers.get("x-tier", "free")
+
+                # 2. FAIL-FAST Security (Python Native)
+                if self.security.check_jailbreak(req.body):
+                     yield self.terminate_request(403, "Security Violation")
+                     return
+
+                # 3. Semantic Routing (Python Native)
+                # No CGo overhead, direct GPU access
+                selected_route = self.routes[user_tier](req.body)
+
+                # 4. Inject Headers and Continue
+                yield self.mutate_headers({
+                    "host": selected_route.endpoint,
+                    "x-maas-model-selected": selected_route.model_id,
+                    "x-model-cost": str(selected_route.cost)
+                })
 ```
 
 **Security Processing Pipeline:**
@@ -718,33 +716,39 @@ http_filters:
 - **❌ No Security Checks**: PII/jailbreak detection bypassed
 
 **2. ExtProc Service Slow/Timeout**
-```go
-// Circuit breaker pattern in vSR ExtProc
-type CircuitBreakerConfig struct {
-    MaxFailures    int           `yaml:"max_failures"`     // 5
-    ResetTimeout   time.Duration `yaml:"reset_timeout"`    // 30s
-    RequestTimeout time.Duration `yaml:"request_timeout"`  // 3s
-}
+```python
+# Circuit breaker pattern in vSR ExtProc (Python)
+import asyncio
+from dataclasses import dataclass
+from typing import Dict
 
-func (s *vSRExtProcService) ProcessWithCircuitBreaker(req *extproc.ProcessingRequest) {
-    if s.circuitBreaker.IsOpen() {
-        // Fast fail to default model
-        return s.getDefaultModelResponse()
-    }
-    
-    // Attempt processing with timeout
-    ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-    defer cancel()
-    
-    result, err := s.processRequestWithTimeout(ctx, req)
-    if err != nil {
-        s.circuitBreaker.RecordFailure()
-        return s.getDefaultModelResponse()
-    }
-    
-    s.circuitBreaker.RecordSuccess()
-    return result
-}
+@dataclass
+class CircuitBreakerConfig:
+    max_failures: int = 5
+    reset_timeout: float = 30.0  # seconds
+    request_timeout: float = 3.0  # seconds
+
+class vSRExtProcService:
+    def __init__(self):
+        self.circuit_breaker = CircuitBreaker(CircuitBreakerConfig())
+        
+    async def process_with_circuit_breaker(self, req):
+        if self.circuit_breaker.is_open():
+            # Fast fail to default model
+            return await self.get_default_model_response()
+        
+        try:
+            # Attempt processing with timeout
+            result = await asyncio.wait_for(
+                self.process_request_with_timeout(req),
+                timeout=3.0
+            )
+            self.circuit_breaker.record_success()
+            return result
+            
+        except (asyncio.TimeoutError, Exception) as e:
+            self.circuit_breaker.record_failure()
+            return await self.get_default_model_response()
 ```
 
 **3. Partial Component Failures**
@@ -826,14 +830,12 @@ The integration requires enhancements to both MaaS and vSR components:
 
 #### 🆕 **MaaS Component Enhancements Required:**
 1. **MaaS API Extensions**:
-   - New endpoint: `POST /v1/models/allowed` for tier-specific model lists
-   - Enhanced tier resolution to include model access policies
+   - Enhanced tier resolution (existing functionality - no new endpoints needed)
 
 2. **AuthPolicy Configuration** *(MaaS-specific configuration using existing Authorino capabilities)*:
-   - Configure metadata lookup for model access via new `/v1/models/allowed` endpoint
    - Configure `X-Groups` header injection using existing `auth.identity.user.groups`  
-   - Configure `X-Allowed-Models` header injection using existing `auth.metadata.*` pattern
    - Configure semantic routing RBAC rule for `semantic-router.vllm.ai/semanticRouting` resource
+   - No model access metadata needed - vSR uses tier-based policies internally
 
 3. **Billing System Enhancements** *(Critical for Accuracy)*:
    - Enhanced billing collector to read `X-MaaS-Model-Selected` header
