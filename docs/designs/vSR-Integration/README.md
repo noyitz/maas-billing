@@ -497,96 +497,39 @@ sequenceDiagram
 **Architecture Pattern**: Envoy External Processing (ExtProc) enables seamless integration between MaaS security framework and vSR intelligence without disrupting existing systems.
 
 **Key Security Requirements:**
+
+**Header Sanitization** - Envoy must strip malicious billing headers from client requests to prevent billing fraud:
 ```yaml
-# Header sanitization prevents billing fraud
-- header: "X-MaaS-Model-Selected"
-  remove: true  # Strip client billing headers
+# Envoy HTTPRoute filter configuration
+http_filters:
+- name: envoy.filters.http.header_to_metadata
+  request_rules:
+  - header: "X-MaaS-Model-Selected"
+    remove: true  # Prevent clients from injecting fake billing data
+  - header: "X-Model-Cost" 
+    remove: true  # Prevent cost manipulation
+  - header: "X-Security-Passed"
+    remove: true  # Prevent security bypass attempts
 ```
 
 **Core Technologies**: ✅ MaaS (Authorino, Limitador) + 🆕 vSR (Python ExtProc)
 
 **Integration Benefits**:
 - **Security**: Proven MaaS authentication + vSR PII detection + jailbreak prevention  
-- **Rate Limiting**: Tier-based + model-aware rate limiting with intelligent fallbacks
+- **Rate Limiting**: Tier-based + model-aware rate limiting for cost control
 - **Intelligence**: ModernBERT semantic classification with intelligent model routing
 - **Performance**: Semantic caching + async processing for optimal latency
 - **Privacy**: Automated PII detection and protection across all requests
-- **Billing**: Dynamic cost calculation based on actual model usage
 
 **Component Interactions:**
 - **KServe Model Serving**: Backend model execution platform ✅ **(Supported Today)**
 - **Billing Collector**: Enhanced to read dynamic model metadata for accurate accounting 🆕 **(NEW - MaaS Enhancement Required)**
 - **Usage Tracking**: Cost calculation based on actual selected model, not API path
 
-### Critical Feature: Billing Feedback Loop
+For detailed billing enhancement implementation, see:
+**[📋 Billing Feedback Loop (Future Enhancement)](billing-feedback-loop.md)**
 
-**The Problem**: Without dynamic metadata, billing is inaccurate
-- User calls: `POST /chat/completions`
-- vSR routes to: `llama3-70b` (expensive) or `tiny-llama` (cheap)  
-- Billing sees: `/chat/completions` path only
-- Result: Incorrect cost calculation
-
-**The Solution**: Dynamic Billing Metadata
-```http
-# Before vSR Processing
-POST /chat/completions
-Authorization: Bearer token123
-
-# After vSR Processing  
-POST /chat/completions
-Authorization: Bearer token123
-Host: llama3-70b-service
-X-MaaS-Model-Selected: llama3-70b    # ← CRITICAL FOR BILLING
-X-Model-Cost: 0.75                   # ← COST OVERRIDE
-```
-
-**Billing System Enhancement (Asynchronous Processing):**
-```go
-type UsageEvent struct {
-    UserID           string    `json:"user_id"`
-    APIPath          string    `json:"api_path"`           // "/chat/completions"
-    SelectedModel    string    `json:"selected_model"`     // "llama3-70b" 
-    ActualCost       float64   `json:"actual_cost"`        // 0.75
-    BillingOverride  bool      `json:"billing_override"`   // true
-    Timestamp        time.Time `json:"timestamp"`
-}
-
-// Asynchronous billing collection - does not block request flow
-func (bc *BillingCollector) ProcessUsageEventAsync(headers map[string]string) *UsageEvent {
-    event := &UsageEvent{
-        APIPath: headers["X-Original-Path"],
-        UserID:  headers["X-User-ID"],
-    }
-    
-    // CRITICAL: Check for dynamic model selection
-    if selectedModel := headers["X-MaaS-Model-Selected"]; selectedModel != "" {
-        event.SelectedModel = selectedModel
-        event.ActualCost = parseFloat(headers["X-Model-Cost"])
-        event.BillingOverride = true
-        
-        // Process billing asynchronously - enqueue event
-        go bc.EnqueueBillingEvent(event)  // Non-blocking async processing
-        return event
-    }
-    
-    // Fallback to path-based billing
-    event.ActualCost = bc.getPathBasedCost(event.APIPath)
-    go bc.EnqueueBillingEvent(event)  // Also async for consistency
-    return event
-}
-
-// Asynchronous billing queue processor
-func (bc *BillingCollector) EnqueueBillingEvent(event *UsageEvent) {
-    // Add to queue/topic for async processing (e.g., Kafka, Redis Queue)
-    bc.billingQueue.Enqueue(event)
-    // Does not block request processing
-}
-```
-
-**Implementation Requirements:**
-1. **vSR ExtProc**: Must inject `X-MaaS-Model-Selected` header ✅ **(Design Complete)**
-2. **Billing Collector**: Must prioritize model metadata over API path 🆕 **(NEW - MaaS Enhancement Required)**
-3. **Usage Tracking**: Enhanced cost calculation logic 🆕 **(NEW - MaaS Enhancement Required)**
+This document covers dynamic billing metadata for accurate cost tracking based on actual model selection. This is a future enhancement that can improve billing accuracy but is not required for the core vSR-MaaS integration.
 
 
 #### Component Communication Patterns
