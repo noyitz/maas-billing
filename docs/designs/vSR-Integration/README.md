@@ -594,34 +594,34 @@ This Authorization-First flow ensures enterprise-grade security while enabling t
 - 🆕 **AuthPolicy Configuration**: Configure semantic routing RBAC rule *(MaaS team - configuration)*
 
 #### Security & Content Protection
-- 🆕 **PII Detection**: Immediate termination for sensitive data *(vSR - new capability)*
-- 🆕 **Jailbreak Prevention**: Block malicious prompts with HTTP 403 *(vSR - new capability)*
-- 🆕 **Content Sanitization**: Validate and clean request content *(vSR - new capability)*
-- 🆕 **Security Audit Trail**: Log all security events and violations *(vSR - new capability)*
+- 🆕 **PII Detection**: Immediate termination for sensitive data *(vSR - core integration)*
+- 🆕 **Jailbreak Prevention**: Block malicious prompts with HTTP 403 *(vSR - core integration)*
+- 🔮 **Content Sanitization**: Validate and clean request content *(vSR - future enhancement)*
+- 🔮 **Security Audit Trail**: Log all security events and violations *(vSR - future enhancement)*
 
 #### Intelligent Routing & Model Selection  
-- 🆕 **Semantic Classification**: ModernBERT-based category detection *(vSR - new capability)*
-- 🆕 **Tier-Based Model Selection**: Route based on user tier and budget *(vSR - new capability)*
-- 🆕 **Host Header Modification**: Dynamic model endpoint routing *(vSR - new capability)*
-- 🆕 **Performance Optimization**: Semantic caching for faster responses *(vSR - new capability)*
+- 🆕 **Semantic Classification**: ModernBERT-based category detection *(vSR - core integration)*
+- 🆕 **Tier-Based Model Selection**: Route based on user tier and budget *(vSR - core integration)*
+- 🆕 **Host Header Modification**: Dynamic model endpoint routing *(vSR - core integration)*
+- 🆕 **Performance Optimization**: Semantic caching for faster responses *(vSR - core integration)*
 
 #### Rate Limiting & Cost Control
 - ✅ **Tier-Based Rate Limiting**: Existing rate limits by user tier *(Limitador - existing)*
-- 🆕 **Model-Specific Rate Limiting**: Rate limits based on selected model *(Limitador - enhancement)*
-- 🆕 **Cost-Aware Rate Limiting**: Budget enforcement and fallback *(Limitador - enhancement)*
-- 🆕 **Dynamic Rate Limiting**: Adaptive limits with suggestions *(Limitador - enhancement)*
+- 🆕 **Model-Specific Rate Limiting**: Rate limits based on selected model *(Limitador - core integration)*
+- 🔮 **Cost-Aware Rate Limiting**: Budget enforcement and fallback *(Limitador - future enhancement)*
+- 🔮 **Dynamic Rate Limiting**: Adaptive limits with suggestions *(Limitador - future enhancement)*
 
 #### Billing & Usage Tracking
 - ✅ **Basic Usage Tracking**: API endpoint-based billing *(MaaS - existing)*
-- 🆕 **Dynamic Billing Metadata**: `X-MaaS-Model-Selected` header injection *(vSR - new capability)*
-- 🆕 **Accurate Cost Calculation**: Bill based on actual model used *(MaaS - enhancement)*
-- 🆕 **Enhanced Usage Events**: Model-specific cost tracking *(MaaS - enhancement)*
+- 🔮 **Dynamic Billing Metadata**: `X-MaaS-Model-Selected` header injection *(vSR - future enhancement)*
+- 🔮 **Accurate Cost Calculation**: Bill based on actual model used *(MaaS - future enhancement)*
+- 🔮 **Enhanced Usage Events**: Model-specific cost tracking *(MaaS - future enhancement)*
 
 #### Technical Infrastructure
-- 🆕 **ExtProc Service Architecture**: External gRPC service with GPU support *(vSR - complete rewrite)*
-- 🆕 **ML Runtime Environment**: PyTorch/HuggingFace dependencies *(vSR - new infrastructure)*
-- 🆕 **Authorization Context Parsing**: Process auth headers from Authorino *(vSR - new capability)*
-- 🆕 **Header Sanitization**: Strip malicious billing headers *(Gateway - security enhancement)*
+- 🆕 **ExtProc Service Architecture**: External gRPC service with GPU support *(vSR - core integration)*
+- 🆕 **ML Runtime Environment**: PyTorch/HuggingFace dependencies *(vSR - core integration)*
+- 🆕 **Authorization Context Parsing**: Process auth headers from Authorino *(vSR - core integration)*
+- 🆕 **Header Sanitization**: Strip malicious billing headers *(Gateway - core integration)*
 
 #### ✅ **Existing Capabilities Leveraged:**
 - **MaaS**: Token validation, tier resolution, basic RBAC, user/tier rate limiting
