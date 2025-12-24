@@ -586,39 +586,47 @@ This Authorization-First flow ensures enterprise-grade security while enabling t
 
 ### Implementation Requirements Summary
 
-#### Authentication & Authorization
-- ✅ **Token Validation**: Kubernetes `TokenReview` for Service Account tokens *(Authorino - existing)*
-- ✅ **Tier Resolution**: HTTP metadata lookup to MaaS API for user tier mapping *(Authorino + MaaS API - existing)*
-- ✅ **Header Injection**: `X-User-ID`, `X-Tier`, `X-Groups` via JSON injection *(Authorino - existing)*
-- ✅ **RBAC Authorization**: SubjectAccessReview for model access control *(Authorino - existing)*
-- 🆕 **Semantic Routing RBAC**: New resource `semantic-router.vllm.ai/semanticRouting` *(MaaS - needed for vSR access control)*
+#### RHCL (Red Hat Connectivity Link) - Authorino/Limitador
+- ✅ **Token Validation**: Kubernetes `TokenReview` for Service Account tokens
+- ✅ **Tier Resolution**: HTTP metadata lookup to MaaS API for user tier mapping
+- ✅ **Header Injection**: `X-User-ID`, `X-Tier`, `X-Groups` via JSON injection
+- ✅ **RBAC Authorization**: SubjectAccessReview for model access control
+- ✅ **User/Tier Rate Limiting**: Request and token limits per tier via Limitador
+- 🆕 **Model-Aware Rate Limiting**: Apply different limits based on selected model cost
+  *Extend Limitador to accept model metadata from vSR for cost-based rate limiting*
+  *Needed for preventing expensive model abuse and enforcing budget controls*
 
-#### Semantic Routing Core (vSR Integration)
-- 🆕 **Intelligent Model Router**: Deploy vLLM Semantic Router with MaaS backends *(vSR - needed to replace manual model selection)*
-- 🆕 **Authorization Context Integration**: Parse MaaS auth headers (`X-Tier`, `X-User-ID`) *(vSR - needed for tier-aware routing)*
-- 🆕 **Envoy ExtProc Service**: Deploy as External Processor, not standalone *(vSR - needed for MaaS gateway integration)*
-- 🆕 **Model Registry Integration**: Connect to KServe/LLMInferenceService discovery *(vSR - needed for dynamic model awareness)*
+#### MaaS (Models-as-a-Service)
+- ✅ **Service Account Token Management**: Generate tokens for model access
+- ✅ **Tier Mapping**: Map user groups to subscription tiers (free/premium/enterprise)
+- ✅ **Model Discovery**: List available KServe/LLMInferenceService models
+- ✅ **Usage Tracking**: Basic request/token metrics via Limitador
+- 🆕 **Semantic Routing RBAC**: New resource `semantic-router.vllm.ai/semanticRouting`
+  *Add RBAC resource to control which users can access intelligent routing features*
+  *Needed for tier-based access control to semantic routing capabilities*
+- 🔮 **Enhanced Usage Analytics**: Track routing decisions and model performance
 
-#### Security & Content Protection (vSR Built-ins Enhanced)
-- ✅ **PII Detection**: vSR includes PII scanning capabilities *(vSR - existing, but needs MaaS tier policy integration)*
-- ✅ **Jailbreak Prevention**: vSR includes prompt guard protection *(vSR - existing, but needs MaaS policy integration)*
-- 🆕 **Tier-Based Security Policies**: Different PII/security rules per MaaS tier *(vSR + MaaS - needed for enterprise compliance)*
-
-#### Rate Limiting & Cost Control
-- ✅ **User/Tier Rate Limiting**: Request and token limits per tier *(Limitador - existing)*
-- 🆕 **Model-Aware Rate Limiting**: Apply different limits based on selected model cost *(Limitador - needed for cost control)*
-- 🔮 **Adaptive Throttling**: Dynamic rate adjustment based on model availability *(Future - smart cost optimization)*
-
-#### Intelligent Features (vSR Core Enhanced)
-- ✅ **Semantic Classification**: vSR includes intent classification *(vSR - existing, but needs tier-aware enhancement)*
-- ✅ **Semantic Caching**: vSR includes similarity-based caching *(vSR - existing, but needs user isolation)*
-- 🆕 **Tier-Based Model Selection**: Route based on user tier and model access *(vSR - needed for MaaS tier enforcement)*
-- 🆕 **Dynamic Endpoint Routing**: Modify `Host` header for KServe model selection *(vSR - needed for MaaS model discovery)*
-
-#### Usage Tracking & Observability
-- ✅ **Basic Usage Metrics**: Request/token tracking via Limitador *(MaaS - existing)*
-- 🔮 **Semantic Usage Analytics**: Track routing decisions and model performance *(Future - enhanced analytics)*
-- 🔮 **Dynamic Billing Metadata**: `X-Selected-Model` header for accurate billing *(Future - cost optimization)*
+#### vSR (vLLM Semantic Router)
+- ✅ **Semantic Classification**: Intent classification using embedding models
+- ✅ **PII Detection**: Built-in scanning for personally identifiable information
+- ✅ **Jailbreak Prevention**: Prompt guard protection against malicious inputs
+- ✅ **Semantic Caching**: Similarity-based caching for improved performance
+- 🆕 **Authorization Context Integration**: Parse MaaS auth headers (`X-Tier`, `X-User-ID`)
+  *Integrate with MaaS authentication context to understand user permissions and tier*
+  *Needed for tier-aware routing decisions and security policy enforcement*
+- 🆕 **Envoy ExtProc Deployment**: Deploy as External Processor, not standalone service
+  *Integrate with MaaS gateway infrastructure using Envoy ExtProc protocol*
+  *Needed for seamless integration with existing MaaS authentication and rate limiting*
+- 🆕 **Tier-Based Model Selection**: Route based on user tier and model access permissions
+  *Enhance model selection logic to respect MaaS tier limitations and budgets*
+  *Needed for enforcing business rules and preventing unauthorized expensive model access*
+- 🆕 **Dynamic Endpoint Routing**: Modify `Host` header for KServe model selection
+  *Dynamically route to specific model endpoints based on routing decisions*
+  *Needed for transparent model selection without client-side routing complexity*
+- 🆕 **User Isolation**: Enhance semantic caching with user/tenant boundaries
+  *Ensure cache isolation between different users and tiers for security*
+  *Needed for multi-tenant security and preventing data leakage between users*
+- 🔮 **Dynamic Billing Metadata**: Inject `X-Selected-Model` header for accurate billing
 
 #### ✅ **Existing Capabilities Leveraged:**
 - **MaaS**: Token validation, tier resolution, basic RBAC, user/tier rate limiting
