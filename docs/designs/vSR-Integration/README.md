@@ -340,76 +340,93 @@ sequenceDiagram
 
 ## 4. Proposed Solution
 
-Based on the analysis of both options, we recommend the **Authorization-First Integrated Architecture** that combines the security benefits of Option A with the intelligent routing capabilities of Option B.
+Based on the analysis of both options, we recommend the **Hybrid Authorization-First Architecture** that strategically combines the security benefits of Option A with the intelligent routing capabilities of Option B.
 
-### 4.1 Recommended Flow: Auth → vSR ExtProc → Security Validation → Model Execution
+### 4.1 Hybrid Approach: Best of Both Worlds
 
-The recommended solution implements a **fail-fast security-first flow** using Envoy External Processing (ExtProc) that ensures proper authentication, intelligent semantic routing, accurate billing, and immediate security termination when threats are detected.
+The solution implements a **multi-phase hybrid flow** that maximizes security, performance, and intelligent routing:
 
-#### Architectural Rationale
+**🔒 Phase 1: MaaS Security-First** - Leverages proven MaaS authentication and authorization
+**🧠 Phase 2: vSR Intelligence** - Applies semantic routing with fail-fast security controls  
+**⚖️ Phase 3: Optional Fine-Grained Auth** - Additional model-specific authorization when needed
+**📊 Phase 4: Dynamic Billing** - Accurate cost tracking based on actual model selection
 
-**Why External Processing (ExtProc) Architecture?**
-1. **Production Feasibility**: vSR requires vector embeddings (ModernBERT), GPU access, and Python ML libraries - impossible in Wasm sandbox
-2. **Scalability**: ExtProc allows vSR to run as separate service/pod with dedicated resources
-3. **Fail-Fast Security**: ExtProc can immediately terminate malicious requests (jailbreak/PII) without reaching models
-4. **Accurate Billing**: ExtProc can inject dynamic metadata for precise cost accounting
+This hybrid approach ensures **enterprise security** while enabling **intelligent model selection** and **accurate billing**.
 
-**Critical Security & Billing Requirements:**
-- **Immediate Threat Termination**: Jailbreak detection must return HTTP 403, not route to models
-- **Dynamic Billing Metadata**: Selected model must be injected for accurate cost accounting
-- **Context-Aware Processing**: Authentication context enables tier-aware model selection
+#### Architecture Overview
 
-**Component Integration Strategy:**
-- **MaaS Security Framework**: Multi-phase authentication and authorization
-- **vSR ExtProc Service**: External semantic processing with security controls
-- **Dynamic Metadata Injection**: Billing accuracy via model selection headers
-- **Fail-Fast Architecture**: Security violations terminate immediately
+The integration uses **Envoy External Processing (ExtProc)** to seamlessly combine MaaS and vSR capabilities in a single request flow.
 
-#### Detailed Flow Implementation
+### 4.2 Phase-by-Phase Implementation
+
+#### Phase 1: MaaS Security-First Authentication
 
 ```mermaid
 sequenceDiagram
     participant Client
     participant Gateway as maas-default-gateway
-    participant Authorino as Authorino (Phase 1)
+    participant Authorino
     participant MaaSAPI as MaaS API
-    participant vSR as vSR ExtProc Service
-    participant Authorino2 as Authorino (Phase 2)
-    participant KServe as KServe Model
-    participant Billing as Billing Collector
     
-    Note over Client,KServe: Phase 1: Identity Authentication
     Client->>Gateway: POST /chat/completions + Service Account Token
     Gateway->>Authorino: Apply AuthPolicy (Identity Check)
     Authorino->>MaaSAPI: Tier lookup + Basic RBAC
     MaaSAPI-->>Authorino: User authorized for API access
     Authorino-->>Gateway: Auth Success + Context Headers<br/>X-User-ID, X-Tier, X-Groups
+```
+
+**Benefits**: ✅ Early authentication, proven security model, tier-based access control
+
+#### Phase 2: vSR Intelligence with Fail-Fast Security
+
+```mermaid
+sequenceDiagram
+    participant Gateway as maas-default-gateway
+    participant vSR as vSR ExtProc Service
+    participant Client
     
-    Note over Client,KServe: Phase 2: Security & Semantic Processing (FAIL-FAST)
     Gateway->>vSR: ExtProc Call with Request Body + Auth Context
-    vSR->>vSR: Calculate Vector Embeddings (ModernBERT)
-    vSR->>vSR: PII Detection
-    vSR->>vSR: Jailbreak Detection
+    vSR->>vSR: PII Detection + Jailbreak Detection
     
     alt Security Violation Detected
         vSR-->>Gateway: HTTP 403 Forbidden (IMMEDIATE TERMINATION)
         Gateway-->>Client: 403 Forbidden - Security Violation
     else Request is Safe
         vSR->>vSR: Semantic Classification (category: math/code/general)
-        vSR->>vSR: Model Selection (within allowed models)
+        vSR->>vSR: Tier-Based Model Selection
         vSR-->>Gateway: Header Modifications:<br/>Host: llama3-70b-service<br/>X-MaaS-Model-Selected: llama3-70b<br/>X-Model-Cost: 0.75
     end
+```
+
+**Benefits**: ✅ Intelligent routing, fail-fast security, dynamic billing metadata
+
+#### Phase 3: Optional Fine-Grained Authorization
+
+```mermaid
+sequenceDiagram
+    participant Gateway as maas-default-gateway
+    participant Authorino as Authorino (Phase 2)
     
-    Note over Client,KServe: Phase 3: Model-Specific Authorization (OPTIONAL - Skip for Most Deployments)
     alt High-Security Mode Enabled
-        Gateway->>Authorino2: Validate User Access to Selected Model
-        Authorino2->>Authorino2: RBAC Check for llama3-70b
-        Authorino2-->>Gateway: Model Access Authorized
+        Gateway->>Authorino: Validate User Access to Selected Model
+        Authorino->>Authorino: RBAC Check for llama3-70b
+        Authorino-->>Gateway: Model Access Authorized
     else Standard Mode (Recommended)
         Note over Gateway: Skip - vSR already enforced tier-based access
     end
+```
+
+**Benefits**: ⚖️ Granular control when needed, performance optimization when skipped
+
+#### Phase 4: Model Execution & Dynamic Billing
+
+```mermaid
+sequenceDiagram
+    participant Gateway as maas-default-gateway
+    participant KServe as KServe Model
+    participant Billing as Billing Collector
+    participant Client
     
-    Note over Client,KServe: Phase 4: Model Execution & Billing
     Gateway->>KServe: Forward to Selected Model (llama3-70b)
     KServe-->>Gateway: Model Response
     Gateway-->>Client: Response
@@ -419,149 +436,26 @@ sequenceDiagram
     Billing->>Billing: Calculate Cost Based on Selected Model (Async Processing)
 ```
 
-#### Phase 1: Identity Authentication & Header Sanitization
+**Benefits**: 📊 Accurate billing, async processing, cost optimization
 
-**Component Interactions:**
-- **maas-default-gateway**: Single entry point applying Envoy ExtProc filter chain
-- **Header Sanitization**: **CRITICAL SECURITY** - Strips malicious billing headers from client
-- **Authorino (Phase 1)**: Validates Service Account tokens and basic API access rights  
-- **MaaS API**: Provides tier resolution and user's allowed model tier policy
-- **AuthPolicy**: Injects authentication context headers for vSR processing
+### 4.3 Implementation Summary
 
-**🚨 CRITICAL SECURITY REQUIREMENT:**
+**Architecture Pattern**: Envoy External Processing (ExtProc) enables seamless integration between MaaS security framework and vSR intelligence without disrupting existing systems.
+
+**Key Security Requirements:**
 ```yaml
-# Envoy configuration MUST sanitize client headers
-http_filters:
-- name: envoy.filters.http.header_to_metadata
-  typed_config:
-    "@type": type.googleapis.com/envoy.extensions.filters.http.header_to_metadata.v3.Config
-    request_rules:
-    # CRITICAL: Remove any client-injected billing headers to prevent fraud
-    - header: "X-MaaS-Model-Selected"
-      remove: true  # Strip from client requests
-    - header: "X-Model-Cost" 
-      remove: true  # Strip from client requests
-    - header: "X-Security-Passed"
-      remove: true  # Strip from client requests
+# Header sanitization prevents billing fraud
+- header: "X-MaaS-Model-Selected"
+  remove: true  # Strip client billing headers
 ```
 
-**Implementation Details:**
+**Core Technologies**: ✅ MaaS (Authorino, Limitador) + 🆕 vSR (Python ExtProc)
 
-1. **Token Validation**: ✅ **(Supported Today)**
-   - Service Account tokens validated against Kubernetes API
-   - Token audience scoped to `maas-default-gateway-sa`
-   - Cached validation results (TTL: 600s) for performance
-
-2. **Tier Resolution**: ✅ **(Supported Today)**
-   - User groups mapped to tiers (free/premium/enterprise) via MaaS API
-   - Tier information cached per user (TTL: 300s)
-   - Tier determines model access permissions and cost budgets
-
-3. **RBAC Authorization**: 
-   - Basic tier access ✅ **(Supported Today)**: Uses Kubernetes SubjectAccessReview for model serving
-   - Semantic routing access 🆕 **(NEW - MaaS Enhancement Required)**: Additional RBAC rule for `semantic-router.vllm.ai/semanticRouting` resource
-
-4. **Tier-Based Model Access**: ✅ **(Design Optimized - No New APIs Required)**
-   - vSR uses tier information to determine model access via embedded tier policies *(vSR Team)*
-   - No need for per-request model lists - reduces header bloat and improves performance *(Design Decision)*
-   - Tier-to-model mapping cached within vSR for optimal performance *(vSR Team)*
-
-5. **Context Enrichment**:
-   - Authorino injects authentication context into headers using **existing generic capabilities**:
-     - `X-User-ID`: Extracted user identifier ✅ **(Supported Today)**
-     - `X-Tier`: User's subscription tier ✅ **(Supported Today)**
-     - `X-Groups`: User's group memberships ✅ **(Likely Supported - Uses existing `auth.identity.user.groups`)**
-
-**Security Controls:**
-- Early rejection of invalid tokens (before semantic processing)
-- Tier-based access control prevents unauthorized model access
-- Comprehensive audit logging of authentication decisions
-- Token scope validation ensures least privilege access
-
-#### Phase 2: Security & Semantic Processing (FAIL-FAST)
-
-**Component Interactions:**
-- **vSR ExtProc Service**: External gRPC service with GPU access for ML inference
-- **ModernBERT Embeddings**: Vector embedding calculation for semantic similarity
-- **Security Pipeline**: PII detection and jailbreak prevention with immediate termination
-- **Model Selection Engine**: Tier-aware routing within authorized models
-
-**Critical Architectural Decision: External Processing (ExtProc)**
-
-**Why Not Wasm?**
-- **Memory Constraints**: Wasm sandboxes have strict memory limits, insufficient for ML models
-- **GPU Access**: Vector embeddings require GPU acceleration, unavailable in Wasm
-- **Library Dependencies**: Requires PyTorch/HuggingFace libraries not available in Wasm runtime
-- **Performance**: ML inference needs optimized environments, not sandboxed execution
-
-**ExtProc Implementation (Python - Production Ready):**
-```python
-# vSR runs as a Python gRPC service implementing Envoy ExternalProcessor
-import grpc
-from envoy.service.ext_proc.v3 import external_processor_pb2_grpc
-from semantic_router import Route, RouteLayer
-
-class vSRExtProcService(external_processor_pb2_grpc.ExternalProcessorServicer):
-    def __init__(self):
-        # Native Python loading of ModernBERT and vLLM components
-        self.encoder = ModernBertEncoder(device="cuda")
-        self.security = SecurityEngine(fail_fast=True)
-        self.routes = self.load_tier_routes()  # Loads routes per tier
-
-    async def Process(self, request_iterator, context):
-        async for req in request_iterator:
-            if req.HasField("request_headers"):
-                # 1. Extract Auth Context
-                headers = self.get_headers(req.request_headers)
-                user_tier = headers.get("x-tier", "free")
-
-                # 2. FAIL-FAST Security (Python Native)
-                if self.security.check_jailbreak(req.body):
-                     yield self.terminate_request(403, "Security Violation")
-                     return
-
-                # 3. Semantic Routing (Python Native)
-                # No CGo overhead, direct GPU access
-                selected_route = self.routes[user_tier](req.body)
-
-                # 4. Inject Headers and Continue
-                yield self.mutate_headers({
-                    "host": selected_route.endpoint,
-                    "x-maas-model-selected": selected_route.model_id,
-                    "x-model-cost": str(selected_route.cost)
-                })
-```
-
-**Security Processing Pipeline:**
-1. **PII Detection** 🔍: Scan request content for sensitive information
-2. **Jailbreak Detection** ⛔: Check for malicious prompt injection attempts
-3. **Immediate Termination** 🚫: Return HTTP 403 if threats detected (NO MODEL ACCESS)
-4. **Safe Processing** ✅: Continue to semantic classification only if secure
-
-**Semantic Processing (Post-Security):**
-1. **Vector Embeddings**: Calculate ModernBERT embeddings for semantic similarity
-2. **Category Classification**: Determine request type (math/code/creative/general)
-3. **Model Selection**: Choose optimal model within user's allowed models
-4. **Billing Metadata**: Inject `X-MaaS-Model-Selected` for accurate cost accounting
-
-#### Phase 3: Model-Specific Authorization (Optional - Only for High-Security Deployments)
-
-**When to Use:**
-- **High-Security Environments**: When model-specific access control is required beyond tier-based access
-- **Compliance Requirements**: When audit trails require explicit per-model authorization
-- **Multi-Tenant Scenarios**: When different users within same tier need different model access
-
-**When to Skip (Recommended for Most Deployments):**
-- **Tier-Based Access**: When vSR's tier-based model selection provides sufficient access control
-- **Performance Priority**: When minimizing latency is more important than granular authorization
-- **Trusted vSR**: When vSR ExtProc service is trusted to enforce tier-based model access
-
-**Component Interactions (when enabled):**
-- **Authorino (Phase 2)**: Validates user access to the specific selected model
-- **RBAC Validation**: Ensures user has permissions for the chosen model endpoint  
-- **Model-Specific Policies**: Fine-grained access control per model
-
-#### Phase 4: Model Execution & Billing Feedback Loop
+**Integration Benefits**:
+- **Security**: Proven MaaS authentication + vSR fail-fast security  
+- **Intelligence**: Tier-based model selection with semantic classification
+- **Billing**: Dynamic cost calculation based on actual model usage
+- **Performance**: Async processing and multi-layer caching
 
 **Component Interactions:**
 - **KServe Model Serving**: Backend model execution platform ✅ **(Supported Today)**
