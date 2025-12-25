@@ -593,6 +593,7 @@ This Authorization-First flow ensures enterprise-grade security while enabling t
 - ✅ **Tier Mapping**: Map user groups to subscription tiers (free/premium/enterprise)
 - ✅ **Model Discovery**: List available KServe/LLMInferenceService models
 - ✅ **Usage Tracking**: Basic request/token metrics via Limitador
+- ✅ **Standard Rate Limiting**: Existing Limitador policies applied after model selection
 - 🆕 **Semantic Routing RBAC**: New resource `semantic-router.vllm.ai/semanticRouting`
   *Add RBAC resource to control which users can access intelligent routing features*
   *Needed for tier-based access control to semantic routing capabilities*
@@ -621,7 +622,7 @@ This Authorization-First flow ensures enterprise-grade security while enabling t
 - 🔮 **Dynamic Billing Metadata**: Inject `X-Selected-Model` header for accurate billing
 
 #### ✅ **Existing Capabilities Leveraged:**
-- **MaaS**: Token validation, tier resolution, basic RBAC, user/tier rate limiting
+- **MaaS**: Token validation, tier resolution, basic RBAC, standard rate limiting
 - **vSR**: Semantic classification, PII detection, jailbreak prevention, semantic caching
 
 
