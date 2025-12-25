@@ -474,7 +474,7 @@ sequenceDiagram
     alt Rate Limit Exceeded
         Limitador-->>Kuadrant: Rate Limit Exceeded
         Kuadrant-->>Gateway: Policy Decision (Deny)
-        Note over Gateway: Proceed to Phase 5 (Fallback)
+        Note over Gateway: Proceed to Phase 4.5 (Fallback)
     else Rate Limits OK
         Limitador-->>Kuadrant: Rate Limits Passed
         Kuadrant-->>Gateway: Policy Decision (Allow)
@@ -530,37 +530,7 @@ sequenceDiagram
 
 **Benefits**: 📊 Accurate billing, async processing, cost optimization
 
-### 4.3 Implementation Summary
-
-**Core Integration Scope** (Phases 1-4.5): The vSR-MaaS integration focuses on combining MaaS authentication/authorization with vSR intelligent routing, model-specific authorization, standard rate limiting, and conditional adaptive fallback logic.
-
-**Future Extensions** (Phase 5): Enhanced billing features that can be added later without disrupting the core integration.
-
-**Architecture Pattern**: Envoy External Processing (ExtProc) enables seamless integration between MaaS security framework and vSR intelligence without disrupting existing systems.
-
-### 4.4 Component Communication Patterns
-
-**Core Technologies**: ✅ MaaS (Authorino, Limitador) + 🆕 vSR (Python ExtProc)
-
-**Integration Benefits**:
-- **Security**: Proven MaaS authentication + vSR PII detection + jailbreak prevention  
-- **Rate Limiting**: Existing tier-based rate limiting applied after intelligent routing
-- **Intelligence**: ModernBERT semantic classification with intelligent model routing
-- **Performance**: Semantic caching + async processing for optimal latency
-- **Privacy**: Automated PII detection and protection across all requests
-
-**Component Interactions:**
-- **KServe Model Serving**: Backend model execution platform ✅ **(Supported Today)**
-- **Billing Collector**: Enhanced to read dynamic model metadata for accurate accounting 🆕 **(NEW - MaaS Enhancement Required)**
-- **Usage Tracking**: Cost calculation based on actual selected model, not API path
-
-For detailed billing enhancement implementation, see:
-**[📋 Billing Feedback Loop (Future Enhancement)](billing-feedback-loop.md)**
-
-This document covers dynamic billing metadata for accurate cost tracking based on actual model selection. This is a future enhancement that can improve billing accuracy but is not required for the core vSR-MaaS integration.
-
-
-**Complete Request Flow Headers:**
+### 4.3 Complete Request Flow Headers
 
 ```http
 # Phase 1: Client Request
@@ -615,7 +585,7 @@ Event: {
 
 This Authorization-First flow ensures enterprise-grade security while enabling the intelligent routing capabilities of vSR, creating a robust and scalable foundation for the integrated platform.
 
-### 4.5 Implementation Requirements Summary
+### 4.4 Implementation Requirements Summary
 
 #### RHCL (Red Hat Connectivity Link) - Authorino/Limitador
 - ✅ **Token Validation**: Kubernetes `TokenReview` for Service Account tokens
@@ -675,35 +645,7 @@ This Authorization-First flow ensures enterprise-grade security while enabling t
 - **vSR**: Semantic classification, PII detection, jailbreak prevention, semantic caching
 
 
-## 5. Implementation Architecture Options
-
-For comprehensive analysis of deployment architecture patterns, see:
-**[📋 Gateway Consolidation Options](gateway-consolidation-options.md)**
-
-This document analyzes:
-- Dual Gateway vs Unified Gateway architectures
-- Hybrid Container and Service Mesh deployment patterns  
-- Performance, cost, and operational trade-offs
-- Implementation examples for each architecture
-- Recommendation matrix and migration strategies
-
-## 6. Advanced Use Cases and Implementation Details
-
-The core design proposal above provides the foundation for the integrated vSR-MaaS platform. The following sections detail advanced use cases, deployment options, and operational considerations.
-
-### 6.1 Adaptive Throttling & Model Fallbacks
-
-For detailed implementation of intelligent model fallbacks with cost-aware throttling, see:
-**[📋 Adaptive Throttling & Model Fallbacks](adaptive-throttling-and-model-fallbacks.md)**
-
-This document covers:
-- Enterprise-grade fallback decision trees with budget constraints
-- Component implementation details for budget tracking and circuit breakers
-- Complete sequence diagrams for fallback scenarios
-- Configuration examples for model hierarchy and rate limiting policies
-- Monitoring and alerting strategies for adaptive systems
-
-## 7. Monitoring and Observability
+## 5. Monitoring and Observability
 
 For complete observability strategy and implementation, see:
 **[📋 Monitoring and Observability](monitoring-and-observability.md)**
@@ -715,7 +657,7 @@ This document details:
 - Business intelligence dashboards and alerting strategies
 - SLIs/SLOs and error budget management
 
-## 8. Security Considerations
+## 6. Security Considerations
 
 For comprehensive security analysis and implementation details, see:
 **[📋 Security Considerations](security-considerations.md)**

@@ -202,6 +202,141 @@ spec:
           expression: auth.metadata.tier_lookup.tier
 ```
 
+#### Complete RBAC Configuration
+
+**ClusterRole for Semantic Routing Access:**
+```yaml
+# ClusterRole defining semantic routing permissions
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: semantic-routing-user
+  labels:
+    app.kubernetes.io/component: rbac
+    app.kubernetes.io/part-of: vsr-maas-integration
+rules:
+- apiGroups: ["semantic-router.vllm.ai"]
+  resources: ["semanticRouting"]
+  verbs: ["use"]
+- apiGroups: [""]
+  resources: ["configmaps"]
+  resourceNames: ["vsr-routing-config"]
+  verbs: ["get"]
+---
+# ClusterRole for semantic routing administration
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: semantic-routing-admin
+rules:
+- apiGroups: ["semantic-router.vllm.ai"]
+  resources: ["semanticRouting"]
+  verbs: ["use", "manage", "configure"]
+- apiGroups: [""]
+  resources: ["configmaps"]
+  verbs: ["get", "update", "patch"]
+```
+
+**RoleBindings for Tier-Based Access:**
+```yaml
+# Premium users get semantic routing access
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: premium-semantic-access
+  namespace: maas-system
+subjects:
+- kind: Group
+  name: tier-premium-users
+  apiGroup: rbac.authorization.k8s.io
+- kind: Group  
+  name: premium-group
+  apiGroup: rbac.authorization.k8s.io
+roleRef:
+  kind: ClusterRole
+  name: semantic-routing-user
+  apiGroup: rbac.authorization.k8s.io
+---
+# Enterprise users get semantic routing access
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: enterprise-semantic-access
+  namespace: maas-system
+subjects:
+- kind: Group
+  name: tier-enterprise-users
+  apiGroup: rbac.authorization.k8s.io
+- kind: Group
+  name: enterprise-group  
+  apiGroup: rbac.authorization.k8s.io
+- kind: Group
+  name: admin-group
+  apiGroup: rbac.authorization.k8s.io
+roleRef:
+  kind: ClusterRole
+  name: semantic-routing-admin
+  apiGroup: rbac.authorization.k8s.io
+---
+# Free tier users explicitly denied (no binding)
+# This ensures free tier cannot access semantic routing
+```
+
+**Service Account Configuration:**
+```yaml
+# Service account for vSR ExtProc service
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: vsr-extproc-service
+  namespace: maas-system
+  labels:
+    app.kubernetes.io/component: semantic-router
+    app.kubernetes.io/part-of: vsr-maas-integration
+  annotations:
+    billing.maas.io/authorized-headers: "x-maas-model-selected,x-model-cost,x-category"
+    security.maas.io/trusted-source: "true"
+    semantic-router.vllm.ai/processor-role: "extproc"
+---
+# ClusterRoleBinding for vSR service operations  
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: vsr-service-operations
+subjects:
+- kind: ServiceAccount
+  name: vsr-extproc-service
+  namespace: maas-system
+roleRef:
+  kind: ClusterRole
+  name: semantic-routing-admin
+  apiGroup: rbac.authorization.k8s.io
+```
+
+**Model-Specific RBAC Integration:**
+```yaml
+# Model access control with semantic routing integration
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: model-access-with-routing
+  namespace: model-serving
+rules:
+# Standard model access
+- apiGroups: ["serving.kserve.io"] 
+  resources: ["inferenceservices"]
+  verbs: ["get", "create"]
+# Semantic routing enhanced access
+- apiGroups: ["semantic-router.vllm.ai"]
+  resources: ["modelRouting"]
+  verbs: ["use"]
+# Fallback model access  
+- apiGroups: ["serving.kserve.io"]
+  resources: ["inferenceservices"]
+  resourceNames: ["llama3-8b", "mistral-7b"] # Fallback models
+  verbs: ["get", "create"]
+```
+
 #### Conditional ExtProc Processing
 
 ```yaml
@@ -523,7 +658,89 @@ security:
     validate_model_access: true
 ```
 
-### 4. Incident Response
+### 4. Phase 4.5 Fallback Security
+
+**Objective**: Ensure adaptive fallback maintains the same security posture as primary model access while preventing fallback abuse.
+
+#### Fallback Security Requirements
+
+**Re-Authorization Enforcement:**
+- All fallback models must pass through complete Phase 3 authorization
+- Fallback requests cannot bypass model-specific RBAC checks
+- User tier validation applies to fallback model access permissions
+
+**Audit Trail Completeness:**
+```yaml
+# Enhanced audit logging for fallback decisions
+fallback_audit_event:
+  timestamp: "2025-12-24T10:30:00Z"
+  user_id: "premium-user-123"
+  original_model: "llama3-70b" 
+  fallback_model: "llama3-8b"
+  fallback_reason: "rate_limit_exceeded"
+  authorization_status: "approved"
+  tier: "premium"
+  session_id: "sess-abc123"
+```
+
+**Fallback Abuse Prevention:**
+```go
+type FallbackSecurityConfig struct {
+    MaxFallbacksPerSession int           `yaml:"max_fallbacks_per_session"` // Prevent quota gaming
+    FallbackCooldown       time.Duration `yaml:"fallback_cooldown"`          // Rate limit fallback attempts
+    AuditAllFallbacks     bool          `yaml:"audit_all_fallbacks"`        // Complete audit trail
+}
+
+// Security validation for fallback requests
+func (s *FallbackSecurityService) ValidateFallbackRequest(req *FallbackRequest) error {
+    // Check fallback attempt limits
+    if req.SessionFallbackCount >= s.config.MaxFallbacksPerSession {
+        return errors.New("maximum fallback attempts exceeded for session")
+    }
+    
+    // Enforce cooldown between fallback attempts  
+    if time.Since(req.LastFallbackAttempt) < s.config.FallbackCooldown {
+        return errors.New("fallback cooldown period not elapsed")
+    }
+    
+    // Validate user has access to fallback model
+    if !s.rbac.HasModelAccess(req.UserContext, req.FallbackModel) {
+        return errors.New("user not authorized for fallback model")
+    }
+    
+    return nil
+}
+```
+
+**Fallback Security Controls:**
+- **Loop Prevention**: Track fallback chain depth to prevent infinite fallback loops
+- **Model Hierarchy Validation**: Ensure fallback models are actually cheaper/lower tier
+- **Session Tracking**: Monitor fallback patterns for abuse detection
+- **Emergency Circuit Breaker**: Disable fallback for suspected abuse patterns
+
+#### Enhanced Fallback Monitoring
+
+```yaml
+# Security metrics for Phase 4.5 fallback monitoring
+fallback_security_metrics:
+  - name: fallback_abuse_attempts_total
+    help: "Total number of suspected fallback abuse attempts"
+    labels: [user_tier, abuse_type, blocked]
+    
+  - name: fallback_authorization_failures_total  
+    help: "Authorization failures during fallback model access"
+    labels: [fallback_model, user_tier, failure_reason]
+    
+  - name: fallback_session_violations_total
+    help: "Sessions exceeding fallback limits"
+    labels: [user_tier, violation_type, action_taken]
+    
+  - name: fallback_security_latency_seconds
+    help: "Additional security validation time for fallback requests" 
+    labels: [validation_type, user_tier]
+```
+
+### 5. Incident Response
 
 **Security Incident Handling:**
 1. **Automated Response**: Immediate blocking of suspicious requests
@@ -621,3 +838,17 @@ pytest tests/security/test_model_access_control.py
 5. **Network Security Testing**: Network policy validation, traffic interception
 
 This security framework ensures that the vSR-MaaS integration maintains enterprise-grade security while enabling intelligent semantic routing capabilities.
+
+## Related Documentation
+
+**Monitoring Integration**: See [Monitoring and Observability](monitoring-and-observability.md) for:
+- Security metrics correlation with business metrics and Phase 4.5 fallback monitoring
+- Enhanced threat detection through comprehensive metric collection
+- End-to-end security tracing across all 5 phases
+- Alert correlation and automated incident response
+
+**Architecture Details**: See main [Design Proposal](README.md) for:
+- Complete 5-phase hybrid authorization-first architecture overview
+- Technical implementation requirements and component integration
+- Phase-by-phase security flow and authorization patterns
+- Integration patterns and implementation best practices

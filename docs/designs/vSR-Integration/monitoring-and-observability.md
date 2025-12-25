@@ -130,6 +130,126 @@ vsr_model_accuracy_feedback:
   labels: [category, selected_model, feedback_score]
 ```
 
+### 2.4 Phase-Specific Integration Metrics
+
+#### 5-Phase Hybrid Architecture Monitoring
+
+**Phase 1: vSR Access Authorization**
+```yaml
+# Phase 1 specific metrics
+phase1_vsr_access_authorization_duration:
+  description: "Time to authorize vSR access for user"
+  labels: [tier, authorization_result, semantic_access_granted]
+
+phase1_semantic_rbac_evaluations_total:
+  description: "RBAC evaluations for semantic routing access"
+  labels: [tier, rbac_result, user_groups]
+
+phase1_tier_context_propagation_success:
+  description: "Success rate of tier context propagation to vSR"
+  labels: [tier, context_complete]
+```
+
+**Phase 2: vSR Intelligence**
+```yaml
+# Phase 2 specific metrics  
+phase2_extproc_integration_duration:
+  description: "Envoy ExtProc communication latency"
+  labels: [operation, success, tier]
+
+phase2_semantic_cache_performance:
+  description: "Semantic cache hit/miss rates with authorization context"
+  labels: [tier, cache_result, similarity_threshold]
+
+phase2_pii_detection_with_context:
+  description: "PII detection enhanced with user tier context"
+  labels: [tier, pii_types, redaction_applied]
+
+phase2_jailbreak_prevention_effectiveness:
+  description: "Jailbreak detection success rate"
+  labels: [confidence_level, tier, immediate_termination]
+
+phase2_model_selection_intelligence:
+  description: "Intelligent model selection based on tier and content"
+  labels: [tier, category, selected_model, confidence]
+```
+
+**Phase 3: Model-Specific Authorization**
+```yaml
+# Phase 3 specific metrics
+phase3_model_authorization_duration:
+  description: "Time to authorize access to selected model"
+  labels: [selected_model, tier, authorization_result]
+
+phase3_rbac_model_evaluations:
+  description: "Model-specific RBAC evaluations after selection"
+  labels: [selected_model, tier, rbac_result]
+
+phase3_authorization_context_usage:
+  description: "Usage of MaaS auth context in model authorization"
+  labels: [context_source, model_selected, authorization_success]
+```
+
+**Phase 4: Rate Limiting & Execution**
+```yaml
+# Phase 4 specific metrics
+phase4_rate_limiting_duration:
+  description: "Rate limiting evaluation time for selected model"
+  labels: [selected_model, tier, limit_type, result]
+
+phase4_model_specific_quotas:
+  description: "Rate limit checks specific to selected model"
+  labels: [selected_model, tier, quota_type, utilization_percentage]
+
+phase4_execution_success_rate:
+  description: "Model execution success rate after rate limiting"
+  labels: [selected_model, tier, execution_result]
+```
+
+**Phase 4.5: Adaptive Fallback Logic (Conditional)**
+```yaml
+# Phase 4.5 specific metrics - Critical for adaptive system
+phase45_fallback_trigger_rate:
+  description: "Rate of fallback triggers due to rate limits"
+  labels: [original_model, tier, trigger_reason]
+
+phase45_fallback_chain_depth:
+  description: "Number of fallback attempts per request"
+  labels: [tier, max_depth_reached, success]
+
+phase45_fallback_authorization_cycles:
+  description: "Re-authorization cycles for fallback models"
+  labels: [fallback_model, tier, cycle_count, final_result]
+
+phase45_adaptive_routing_effectiveness:
+  description: "Success rate of adaptive fallback routing"
+  labels: [original_model, fallback_model, tier, user_satisfaction]
+
+phase45_infinite_loop_prevention:
+  description: "Prevention of infinite fallback loops"
+  labels: [loop_detected, prevention_action, tier]
+```
+
+**End-to-End Hybrid Flow**
+```yaml
+# Complete 5-phase flow metrics
+hybrid_flow_complete_duration:
+  description: "Total time for complete 5-phase request processing"
+  labels: [phases_completed, fallback_used, final_model, tier]
+
+hybrid_flow_phase_transitions:
+  description: "Successful transitions between phases"
+  labels: [from_phase, to_phase, transition_success, tier]
+
+hybrid_security_effectiveness:
+  description: "Overall security posture of hybrid authorization-first flow"
+  labels: [threats_blocked, authorization_layers_passed, tier]
+
+hybrid_intelligent_routing_roi:
+  description: "ROI of intelligent routing vs simple routing"
+  labels: [cost_optimization, user_satisfaction, tier]
+```
+
 ## Integrated Architecture Monitoring
 
 ### 3. Enhanced Observability Framework
@@ -489,3 +609,17 @@ error_budgets:
 ```
 
 This comprehensive observability framework ensures complete visibility into the integrated vSR-MaaS platform, enabling proactive monitoring, rapid issue resolution, and continuous optimization of both performance and user experience.
+
+## Related Documentation
+
+**Security Integration**: See [Security Considerations](security-considerations.md) for:
+- Security-specific monitoring requirements and threat detection metrics
+- Enhanced security controls for Phase 4.5 fallback monitoring
+- Security incident response integration with monitoring alerts
+- Comprehensive security audit trail and compliance monitoring
+
+**Architecture Details**: See main [Design Proposal](README.md) for:
+- Complete 5-phase hybrid authorization-first architecture overview
+- Technical implementation requirements for monitoring integration
+- Phase-by-phase component communication patterns
+- Business requirements and implementation priorities for observability
