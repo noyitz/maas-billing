@@ -353,7 +353,10 @@ Kuadrant → Authorino authentication and vSR access control
 Semantic caching, PII detection, jailbreak prevention, and intelligent model routing
 
 **🔐 Phase 3: Model-Specific Authorization**  
-Kuadrant → Authorino authorization for the selected model 
+Kuadrant → Authorino authorization for the selected model
+
+**🔄 Phase 3.5: Adaptive Fallback Logic**  
+Rate limit pre-check and intelligent model fallback with user notification
 
 **⚖️ Phase 4: Rate Limiting & Execution**  
 Kuadrant → Limitador rate limiting (requests + tokens) then model execution
@@ -448,6 +451,37 @@ sequenceDiagram
 
 **Benefits**: 🔐 Standard MaaS model authorization, granular access control per model
 
+#### Phase 3.5: Adaptive Fallback Logic
+
+```mermaid
+sequenceDiagram
+    participant Gateway as maas-default-gateway
+    participant vSR as vSR ExtProc
+    participant Limitador as Rate Limit Checker
+    participant MaaS as MaaS API
+    
+    Note over Gateway,MaaS: After model authorization (llama3-70b authorized)
+    Gateway->>vSR: Check rate limit status before routing
+    vSR->>Limitador: Query current rate limit status
+    Limitador->>MaaS: Get user quota remaining for llama3-70b
+    MaaS-->>Limitador: Quota: 2/20 requests remaining
+    Limitador-->>vSR: Rate limit status response
+    
+    alt Quota Available
+        vSR-->>Gateway: Route to llama3-70b (original selection)
+    else Quota Exhausted
+        vSR->>vSR: Find available fallback model (llama3-8b)
+        vSR->>vSR: Inject system prompt explanation
+        vSR-->>Gateway: Route to llama3-8b + fallback headers<br/>X-Fallback-Applied: true<br/>X-Original-Model: llama3-70b<br/>X-Fallback-Reason: rate_limit_exceeded
+    end
+```
+
+**Benefits**: 
+- 🔄 **Intelligent Fallback**: Users get responses instead of 429 errors
+- 📊 **Transparent Communication**: Users understand why they got a different model
+- 💰 **Cost Optimization**: Utilizes available cheaper models when expensive ones are exhausted
+- 🎯 **Improved UX**: Maintains service availability under quota pressure
+
 #### Phase 4: Rate Limiting & Model Execution
 
 ```mermaid
@@ -498,64 +532,67 @@ sequenceDiagram
 
 ### 4.3 Implementation Summary
 
-**Core Integration Scope** (Phases 1-4): The vSR-MaaS integration focuses on combining MaaS authentication/authorization with vSR intelligent routing, model-specific authorization, and standard rate limiting.
+**Core Integration Scope** (Phases 1-4): The vSR-MaaS integration focuses on combining MaaS authentication/authorization with vSR intelligent routing, model-specific authorization, adaptive fallback logic, and standard rate limiting.
 
 **Future Extensions** (Phase 5): Enhanced billing features that can be added later without disrupting the core integration.
 
 **Architecture Pattern**: Envoy External Processing (ExtProc) enables seamless integration between MaaS security framework and vSR intelligence without disrupting existing systems.
 
-### 4.4 Performance Considerations & Latency Management
+### 4.4 Adaptive Throttling & Fallback Strategy
 
-**Critical Challenge**: LLM users expect low Time-To-First-Token (TTFT), but vSR semantic classification requires buffering the complete request body before processing can begin.
+**Critical Challenge**: The "Fallback Trap" - Premium users hitting Llama-70b quotas receive 429 errors instead of intelligent fallback to available models, leading to service denial despite having access to other models.
 
-**Latency Risk**: For large context windows (10k+ tokens), the request buffering + BERT classification + model selection pipeline can add 500ms+ latency, significantly degrading user experience.
+**Business Impact**: Poor user experience when expensive models are exhausted, missed opportunity to utilize available cheaper models, potential user churn due to service unavailability.
 
-**Mitigation Strategy**: Tiered processing approach based on request size and user tier:
+**Solution Strategy**: Proactive rate limit checking with intelligent fallback hierarchy:
 
-#### Request Size-Based Processing
+#### Fallback Decision Tree
 
 ```mermaid
 flowchart TD
-    Request[Incoming Request] --> SizeCheck{Request Size}
-    SizeCheck -->|< 2KB| FastPath[Fast Path: Full vSR Processing]
-    SizeCheck -->|2-8KB| StandardPath[Standard Path: 200ms Budget]
-    SizeCheck -->|> 8KB| LargePath[Large Request Path]
+    ModelSelect[vSR Selects Primary Model] --> QuotaCheck{Check Rate Limit Status}
+    QuotaCheck -->|Quota Available| PrimaryRoute[Route to Primary Model]
+    QuotaCheck -->|Quota Exhausted| FallbackLogic[Activate Fallback Logic]
     
-    FastPath --> FullvSR[PII + Jailbreak + Classification]
-    StandardPath --> LimitedvSR[PII + Jailbreak Only]
-    LargePath --> TierCheck{User Tier}
+    FallbackLogic --> TierCheck{User Tier}
+    TierCheck -->|Enterprise| Enterprise[Fallback Hierarchy:<br/>GPT-4 → Claude → Llama-70b → Llama-8b]
+    TierCheck -->|Premium| Premium[Fallback Hierarchy:<br/>Llama-70b → Llama-8b → Tiny-Llama]
+    TierCheck -->|Free| Free[Fallback Hierarchy:<br/>Llama-8b → Tiny-Llama → Queue]
     
-    TierCheck -->|Enterprise| BlockingvSR[Full vSR - Accept Latency]
-    TierCheck -->|Premium/Free| AsyncAudit[Async Audit Mode]
+    Enterprise --> FallbackCheck{Available Models?}
+    Premium --> FallbackCheck
+    Free --> FallbackCheck
     
-    AsyncAudit --> StreamStart[Start Model Streaming]
-    AsyncAudit --> BackgroundvSR[Background PII/Security Check]
-    BackgroundvSR --> TerminateStream{Security Violation?}
-    TerminateStream -->|Yes| StreamKill[Terminate Stream]
-    TerminateStream -->|No| ContinueStream[Continue Stream]
+    FallbackCheck -->|Model Available| FallbackRoute[Route to Fallback Model<br/>+ Explanation Prompt]
+    FallbackCheck -->|No Models Available| QueueOrDeny{Tier Policy}
+    
+    QueueOrDeny -->|Enterprise/Premium| QueueRequest[Queue Request<br/>Retry in 60s]
+    QueueOrDeny -->|Free| DenyRequest[429 Rate Limited<br/>Retry After Header]
 ```
 
-#### Tier-Based Processing Modes
+#### System Prompt Injection for Fallbacks
 
-| **Tier** | **Request Size** | **Processing Mode** | **Latency Budget** | **Security Level** |
-|----------|------------------|---------------------|-------------------|-------------------|
-| **Enterprise** | Any | Blocking (Full vSR) | 500ms max | Maximum security |
-| **Premium** | < 8KB | Blocking (Full vSR) | 200ms max | Full protection |
-| **Premium** | > 8KB | Async Audit | 50ms initial | Stream + monitor |
-| **Free** | < 2KB | Fast Path | 100ms max | Basic protection |
-| **Free** | > 2KB | Bypass + Log | 20ms max | Minimal processing |
+When fallback occurs, vSR automatically injects explanatory system prompts:
 
-**Risk Mitigation Benefits**:
-- **User Experience**: Maintains TTFT expectations for majority of requests
-- **Security**: Enterprise users get full protection regardless of latency
-- **Scalability**: Large requests don't block the vSR processing pipeline
-- **Cost Control**: Processing resources allocated based on user value
+```http
+# Example: Premium user fallback from Llama-70b to Llama-8b
+POST /models/llama3-8b/chat/completions
+X-Fallback-Applied: true
+X-Original-Model: llama3-70b  
+X-Fallback-Reason: rate_limit_exceeded
 
-**Implementation Requirements**:
-- **Request Size Detection**: Envoy buffer limits and size-based routing
-- **Tier-Aware Processing**: vSR integration with user tier context
-- **Async Audit Capability**: Background security monitoring with stream termination
-- **Latency Monitoring**: Real-time tracking of vSR processing time
+# Injected system message:
+{
+  "role": "system", 
+  "content": "Note: I am Llama-8B responding to this request. You requested our premium Llama-70B model, but your quota is temporarily exhausted. I will do my best to provide a helpful response with my capabilities."
+}
+```
+
+**Fallback Benefits**:
+- **Service Continuity**: Users get responses instead of 429 errors
+- **Transparent Communication**: Clear explanation of model changes
+- **Resource Optimization**: Utilizes available capacity across model fleet
+- **Business Value**: Maintains user engagement during peak usage periods
 
 **Key Security Requirements:**
 
@@ -665,6 +702,9 @@ This Authorization-First flow ensures enterprise-grade security while enabling t
 - ✅ **Model Discovery**: List available KServe/LLMInferenceService models
 - ✅ **Usage Tracking**: Basic request/token metrics via Limitador
 - ✅ **Standard Rate Limiting**: Existing Limitador policies applied after model selection
+- 🆕 **Rate Limit Status API**: Expose current quota usage for intelligent fallback decisions
+  *Provide real-time rate limit status to vSR for adaptive routing decisions*
+  *Needed to enable intelligent fallback when primary model quotas are exhausted*
 - 🆕 **Semantic Routing RBAC**: New resource `semantic-router.vllm.ai/semanticRouting`
   *Add RBAC resource to control which users can access intelligent routing features*
   *Needed for tier-based access control to semantic routing capabilities*
@@ -681,15 +721,12 @@ This Authorization-First flow ensures enterprise-grade security while enabling t
 - 🆕 **Envoy ExtProc Deployment**: Deploy as External Processor, not standalone service
   *Integrate with MaaS gateway infrastructure using Envoy ExtProc protocol*
   *Needed for seamless integration with existing MaaS authentication and rate limiting*
-- 🆕 **Request Size-Based Processing**: Implement tiered processing based on request size
-  *Route small requests through full vSR, large requests through optimized paths*
-  *Needed to maintain low Time-To-First-Token (TTFT) for user experience*
-- 🆕 **Async Audit Mode**: Background security monitoring with stream termination capability
-  *Process large requests asynchronously while streaming starts, terminate if violations found*
-  *Needed to balance security with performance for large context windows*
-- 🆕 **Latency Budget Management**: Enforce processing time limits based on user tier
-  *Implement 200ms budget for premium, 500ms for enterprise, 100ms for free tier*
-  *Needed to prevent vSR processing from degrading TTFT beyond acceptable limits*
+- 🆕 **Rate Limit Aware Model Selection**: Check quota status before routing decisions
+  *Query current rate limit status and select available models within user quotas*
+  *Needed to prevent 429 errors and enable intelligent fallback to available models*
+- 🆕 **Adaptive Fallback System**: Automatically fallback to cheaper models when quotas exceeded
+  *Implement fallback hierarchy and inject system prompts explaining model changes*
+  *Needed to maintain service availability and improve user experience under quota pressure*
 - 🆕 **Tier-Based Model Selection**: Route based on user tier and model access permissions
   *Enhance model selection logic to respect MaaS tier limitations and budgets*
   *Needed for enforcing business rules and preventing unauthorized expensive model access*
