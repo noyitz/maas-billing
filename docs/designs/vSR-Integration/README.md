@@ -346,16 +346,19 @@ Based on the analysis of both options, we recommend the **Hybrid Authorization-F
 
 The solution implements a **multi-phase hybrid flow** that maximizes security, performance, and intelligent routing:
 
-**🔒 Phase 1: MaaS Authentication & Authorization**  
-Proven MaaS authentication, authorization, and vSR access control
+**🔒 Phase 1: vSR Access Authorization**  
+Kuadrant → Authorino authentication and vSR access control
 
 **🧠 Phase 2: vSR Intelligence**  
 Semantic caching, PII detection, jailbreak prevention, and intelligent model routing
 
-**⚖️ Phase 3: Standard Rate Limiting**  
-Existing Limitador rate limiting (requests + tokens) applied after model selection
+**🔐 Phase 3: Model-Specific Authorization**  
+Kuadrant → Authorino authorization for the selected model 
 
-**📊 Phase 4: Dynamic Billing** *(Future Extension)*  
+**⚖️ Phase 4: Rate Limiting & Execution**  
+Kuadrant → Limitador rate limiting (requests + tokens) then model execution
+
+**📊 Phase 5: Dynamic Billing** *(Future Extension)*  
 Accurate cost tracking based on actual model selection
 
 This hybrid approach ensures **enterprise security** and **intelligent routing**, with proven rate limiting applied after model selection for optimal user experience.
@@ -366,23 +369,26 @@ The integration uses **Envoy External Processing (ExtProc)** to seamlessly combi
 
 ### 4.2 Phase-by-Phase Implementation
 
-#### Phase 1: MaaS Authentication & Authorization
+#### Phase 1: vSR Access Authorization
 
 ```mermaid
 sequenceDiagram
     participant Client
     participant Gateway as maas-default-gateway
+    participant Kuadrant
     participant Authorino
     participant MaaSAPI as MaaS API
     
     Client->>Gateway: POST /chat/completions + Service Account Token
-    Gateway->>Authorino: Apply AuthPolicy (Identity Check)
+    Gateway->>Kuadrant: Apply Policies
+    Kuadrant->>Authorino: Validate Service Account Token
     Authorino->>MaaSAPI: Tier lookup + vSR Access Check
     MaaSAPI-->>Authorino: User authorized for vSR access
-    Authorino-->>Gateway: Auth Success + Context Headers<br/>X-User-ID, X-Tier, X-Groups
+    Authorino-->>Kuadrant: Auth Success + Context Headers
+    Kuadrant-->>Gateway: Policy Decision (Allow) + Headers<br/>X-User-ID, X-Tier, X-Groups
 ```
 
-**Benefits**: ✅ Early authentication, proven security model, vSR access control
+**Benefits**: ✅ Standard MaaS auth flow, proven security model, vSR access control
 
 #### Phase 2: vSR Intelligence with Advanced Features
 
@@ -422,49 +428,61 @@ sequenceDiagram
 - ⚡ **Performance**: Semantic caching reduces latency for similar requests
 - 📊 **Dynamic Billing**: Accurate cost metadata injection
 
-#### Phase 3: Optional Fine-Grained Authorization (Future Extension)
+#### Phase 3: Model-Specific Authorization
 
 ```mermaid
 sequenceDiagram
     participant Gateway as maas-default-gateway
-    participant Authorino as Authorino (Phase 2)
+    participant Kuadrant
+    participant Authorino
+    participant AuthPolicy
     
-    alt High-Security Mode Enabled
-        Gateway->>Authorino: Validate User Access to Selected Model
-        Authorino->>Authorino: RBAC Check for llama3-70b
-        Authorino-->>Gateway: Model Access Authorized
-    else Standard Mode (Recommended)
-        Note over Gateway: Skip - vSR already enforced tier-based access
-    end
+    Note over Gateway,AuthPolicy: After vSR model selection (llama3-70b)
+    Gateway->>Kuadrant: Apply Model-Specific Policies
+    Kuadrant->>Authorino: Validate User Access to Selected Model
+    Authorino->>AuthPolicy: RBAC Check for llama3-70b model
+    AuthPolicy-->>Authorino: Model Access Authorized
+    Authorino-->>Kuadrant: Authorization Success
+    Kuadrant-->>Gateway: Policy Decision (Allow)
 ```
 
-**Benefits**: 🔐 Granular control when needed, performance optimization when skipped
+**Benefits**: 🔐 Standard MaaS model authorization, granular access control per model
 
-#### Phase 3: Standard Rate Limiting & Model Execution
+#### Phase 4: Rate Limiting & Model Execution
 
 ```mermaid
 sequenceDiagram
     participant Gateway as maas-default-gateway
+    participant Kuadrant
     participant Limitador
+    participant RateLimitPolicy
+    participant TokenRateLimitPolicy
     participant KServe as Selected Model
     participant Client
     
-    Note over Gateway,KServe: After vSR model selection
-    Gateway->>Limitador: Apply Existing Rate Limits<br/>X-User-ID, X-Tier (standard policies)
+    Note over Gateway,Client: After model authorization (llama3-70b authorized)
+    Gateway->>Kuadrant: Apply Rate Limiting Policies
+    Kuadrant->>Limitador: Check Rate Limits
+    Limitador->>RateLimitPolicy: Apply Request Rate Limits
+    Limitador->>TokenRateLimitPolicy: Apply Token Rate Limits
+    RateLimitPolicy-->>Limitador: Request Rate Status
+    TokenRateLimitPolicy-->>Limitador: Token Rate Status
     
     alt Rate Limit Exceeded
-        Limitador-->>Gateway: 429 Too Many Requests
+        Limitador-->>Kuadrant: Rate Limit Exceeded
+        Kuadrant-->>Gateway: Policy Decision (Deny)
         Gateway-->>Client: 429 Too Many Requests
-    else Rate Limit OK
-        Limitador-->>Gateway: Rate limit check passed
+    else Rate Limits OK
+        Limitador-->>Kuadrant: Rate Limits Passed
+        Kuadrant-->>Gateway: Policy Decision (Allow)
         Gateway->>KServe: Forward to Selected Model
         KServe-->>Client: Model Response
     end
 ```
 
-**Benefits**: ⚖️ Proven rate limiting, standard user experience, no new complexity
+**Benefits**: ⚖️ Standard MaaS rate limiting, both request and token limits, proven reliability
 
-#### Phase 4: Dynamic Billing (Future Extension)
+#### Phase 5: Dynamic Billing (Future Extension)
 
 ```mermaid
 sequenceDiagram
@@ -480,9 +498,9 @@ sequenceDiagram
 
 ### 4.3 Implementation Summary
 
-**Core Integration Scope** (Phases 1-3): The vSR-MaaS integration focuses on combining MaaS authentication/authorization with vSR intelligent routing and standard rate limiting.
+**Core Integration Scope** (Phases 1-4): The vSR-MaaS integration focuses on combining MaaS authentication/authorization with vSR intelligent routing, model-specific authorization, and standard rate limiting.
 
-**Future Extensions** (Phase 4): Enhanced billing features that can be added later without disrupting the core integration.
+**Future Extensions** (Phase 5): Enhanced billing features that can be added later without disrupting the core integration.
 
 **Architecture Pattern**: Envoy External Processing (ExtProc) enables seamless integration between MaaS security framework and vSR intelligence without disrupting existing systems.
 
