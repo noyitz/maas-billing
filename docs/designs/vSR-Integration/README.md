@@ -538,73 +538,7 @@ sequenceDiagram
 
 **Architecture Pattern**: Envoy External Processing (ExtProc) enables seamless integration between MaaS security framework and vSR intelligence without disrupting existing systems.
 
-### 4.4 Adaptive Throttling & Fallback Strategy
-
-**Critical Challenge**: The "Fallback Trap" - Premium users hitting Llama-70b quotas receive 429 errors instead of intelligent fallback to available models, leading to service denial despite having access to other models.
-
-**Business Impact**: Poor user experience when expensive models are exhausted, missed opportunity to utilize available cheaper models, potential user churn due to service unavailability.
-
-**Solution Strategy**: Proactive rate limit checking with intelligent fallback hierarchy:
-
-#### Fallback Decision Tree
-
-```mermaid
-flowchart TD
-    ModelSelect[vSR Selects Primary Model] --> QuotaCheck{Check Rate Limit Status}
-    QuotaCheck -->|Quota Available| PrimaryRoute[Route to Primary Model]
-    QuotaCheck -->|Quota Exhausted| FallbackLogic[Activate Fallback Logic]
-    
-    FallbackLogic --> TierCheck{User Tier}
-    TierCheck -->|Enterprise| Enterprise[Fallback Hierarchy:<br/>GPT-4 → Claude → Llama-70b → Llama-8b]
-    TierCheck -->|Premium| Premium[Fallback Hierarchy:<br/>Llama-70b → Llama-8b → Tiny-Llama]
-    TierCheck -->|Free| Free[Fallback Hierarchy:<br/>Llama-8b → Tiny-Llama → Queue]
-    
-    Enterprise --> FallbackCheck{Available Models?}
-    Premium --> FallbackCheck
-    Free --> FallbackCheck
-    
-    FallbackCheck -->|Model Available| FallbackRoute[Route to Fallback Model<br/>+ Explanation Prompt]
-    FallbackCheck -->|No Models Available| QueueOrDeny{Tier Policy}
-    
-    QueueOrDeny -->|Enterprise/Premium| QueueRequest[Queue Request<br/>Retry in 60s]
-    QueueOrDeny -->|Free| DenyRequest[429 Rate Limited<br/>Retry After Header]
-```
-
-#### System Prompt Injection for Fallbacks
-
-When fallback occurs, vSR automatically injects explanatory system prompts:
-
-```http
-# Example: Premium user fallback from Llama-70b to Llama-8b
-POST /models/llama3-8b/chat/completions
-X-Fallback-Applied: true
-X-Original-Model: llama3-70b  
-X-Fallback-Reason: rate_limit_exceeded
-
-# Injected system message:
-{
-  "role": "system", 
-  "content": "Note: I am Llama-8B responding to this request. You requested our premium Llama-70B model, but your quota is temporarily exhausted. I will do my best to provide a helpful response with my capabilities."
-}
-```
-
-**Fallback Benefits**:
-- **Service Continuity**: Users get responses instead of 429 errors
-- **Transparent Communication**: Clear explanation of model changes
-- **Resource Optimization**: Utilizes available capacity across model fleet
-- **Business Value**: Maintains user engagement during peak usage periods
-
-**Key Security Requirements:**
-
-For comprehensive security analysis including header trust boundary protection, access control, and fraud prevention, see:
-**[📋 Security Considerations](security-considerations.md)**
-
-This document covers:
-- Header sanitization to prevent billing fraud
-- Semantic routing access control and authorization
-- Performance protection through conditional ExtProc
-- Enhanced threat modeling and risk assessment
-- Comprehensive security monitoring and audit trails
+### 4.4 Component Communication Patterns
 
 **Core Technologies**: ✅ MaaS (Authorino, Limitador) + 🆕 vSR (Python ExtProc)
 
@@ -625,8 +559,6 @@ For detailed billing enhancement implementation, see:
 
 This document covers dynamic billing metadata for accurate cost tracking based on actual model selection. This is a future enhancement that can improve billing accuracy but is not required for the core vSR-MaaS integration.
 
-
-#### Component Communication Patterns
 
 **Complete Request Flow Headers:**
 
@@ -683,7 +615,7 @@ Event: {
 
 This Authorization-First flow ensures enterprise-grade security while enabling the intelligent routing capabilities of vSR, creating a robust and scalable foundation for the integrated platform.
 
-### Implementation Requirements Summary
+### 4.5 Implementation Requirements Summary
 
 #### RHCL (Red Hat Connectivity Link) - Authorino/Limitador
 - ✅ **Token Validation**: Kubernetes `TokenReview` for Service Account tokens
@@ -791,7 +723,10 @@ For comprehensive security analysis and implementation details, see:
 This document covers:
 - PII protection strategies in the integrated flow
 - Authorization flow security controls
+- Header trust boundary protection and billing fraud prevention
 - Token scope validation and audit logging
 - Data isolation and tenant boundaries
 - Security best practices for semantic routing
+- Enhanced threat modeling and risk assessment
+- Performance protection and resource isolation
 
