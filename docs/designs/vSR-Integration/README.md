@@ -491,32 +491,22 @@ sequenceDiagram
 sequenceDiagram
     participant Gateway as maas-default-gateway
     participant vSR as vSR ExtProc
-    participant Kuadrant
-    participant Limitador
-    participant KServe as Fallback Model
     participant Client
     
     Note over Gateway,Client: After rate limit exceeded in Phase 4
-    Gateway->>vSR: Request fallback model for llama3-70b
-    vSR->>vSR: Find available fallback model (llama3-8b)
-    vSR->>vSR: Inject system prompt explanation
-    vSR-->>Gateway: Fallback route + headers<br/>X-Fallback-Applied: true<br/>X-Original-Model: llama3-70b<br/>X-Fallback-Reason: rate_limit_exceeded
+    Gateway->>Gateway: Check if already in fallback mode
     
-    Note over Gateway: Restart from Phase 3 with fallback model
-    Gateway->>Kuadrant: Apply Authorization Policies for llama3-8b
-    Kuadrant->>Authorino: Validate User Access to llama3-8b
-    Authorino-->>Kuadrant: Fallback Model Authorized
-    Kuadrant->>Limitador: Check Rate Limits for llama3-8b
-    
-    alt Fallback Rate Limit OK
-        Limitador-->>Kuadrant: Fallback Rate Limits Passed
-        Kuadrant-->>Gateway: Policy Decision (Allow)
-        Gateway->>KServe: Forward to Fallback Model
-        KServe-->>Client: Fallback Model Response with Explanation
-    else All Models Exhausted
-        Limitador-->>Kuadrant: All Quotas Exceeded
-        Kuadrant-->>Gateway: Policy Decision (Deny)
-        Gateway-->>Client: 429 Too Many Requests + Retry After
+    alt Already in Fallback
+        Gateway-->>Client: 429 Too Many Requests + Retry After<br/>(No further fallback allowed)
+    else Not in Fallback Yet
+        Gateway->>vSR: Request fallback model for llama3-70b
+        vSR->>vSR: Find available fallback model (llama3-8b)
+        vSR->>vSR: Inject system prompt explanation
+        vSR-->>Gateway: Fallback route + headers<br/>X-Fallback-Applied: true<br/>X-Original-Model: llama3-70b<br/>X-Fallback-Reason: rate_limit_exceeded
+        
+        Note over Gateway: Restart from Phase 3 with fallback model<br/>(Authorization + Rate Limiting)
+        Gateway->>Gateway: Execute Phase 3-4 with llama3-8b
+        Gateway-->>Client: Fallback Model Response or 429 if exhausted
     end
 ```
 
