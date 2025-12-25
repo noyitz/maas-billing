@@ -640,7 +640,6 @@ This Authorization-First flow ensures enterprise-grade security while enabling t
 ### 4.4 Implementation Requirements Summary
 
 #### RHCL (Red Hat Connectivity Link) - Authorino/Limitador
-*These are accurate. RHCL/Authorino is a policy engine, so these are just configurations (YAML), not new code.*
 - ✅ **Token Validation**: Kubernetes `TokenReview` for Service Account tokens
 - ✅ **Tier Resolution**: HTTP metadata lookup to MaaS API for user tier mapping
 - ✅ **Context Injection**: `X-User-ID`, `X-Tier`, `X-Groups` injected for downstream consumption
@@ -648,7 +647,7 @@ This Authorization-First flow ensures enterprise-grade security while enabling t
 - ✅ **Limitador Integration**: Enforce limits based on `X-MaaS-Model-Selected` (from vSR) and `X-User-ID`
 
 #### MaaS (Models-as-a-Service) & Gateway
-- ✅ **Header Sanitization**: **[CRITICAL]** Configure Gateway to strip `X-MaaS-*` headers *(Standard Envoy Config)*
+- ✅ **Header Sanitization**: Configure Gateway to strip `X-MaaS-*` headers *(Standard Envoy Config)*
 - ✅ **Filter Chain Orchestration**: Configure Envoy logic order *(Standard Envoy Config)*
 - 🆕 **WASM/Lua Circuit Breaker**: **[NEW]** Develop an Envoy filter/script to intercept Limitador 429 responses, query vSR for fallback, and internally redirect *(Custom Code Required)*
 - 🆕 **Semantic Routing RBAC**: New resource `semantic-router.vllm.ai/semanticRouting`
@@ -656,9 +655,8 @@ This Authorization-First flow ensures enterprise-grade security while enabling t
 
 #### vSR (vLLM Semantic Router)
 - 🆕 **Envoy ExtProc Implementation**: Server implementing the Envoy External Processor gRPC interface *(Must wrap the Python library in a gRPC server)*
-- 🆕 **Multi-Tenant Cache Isolation**: **[CRITICAL]** Logic to namespace semantic cache entries using `X-User-ID` to prevent data leakage *(Custom logic on top of library)*
+- 🆕 **Multi-Tenant Cache Isolation**: Logic to namespace semantic cache entries using `X-User-ID` to prevent data leakage *(Custom logic on top of library)*
 - 🆕 **Model Registry Sync**: Mechanism for vSR to poll MaaS models
-- 🆕 **Cost-Aware Routing Logic**: Logic to select models based on Tier
 - 🆕 **Fallback Resolution API**: Logic to handle "exclude_model" requests
 - 🆕 **Transparent Header Injection**: Inject observability headers
 
