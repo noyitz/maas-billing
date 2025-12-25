@@ -559,29 +559,81 @@ POST /models/llama3-70b/chat/completions
 Authorization: Bearer sa-token-xyz
 X-User-ID: math-user-123                    # ✅ Used for rate limiting
 X-Tier: premium                             # ✅ Used for rate limiting
+X-MaaS-Model-Selected: llama3-70b          # ✅ Passed through for billing
 
-# Phase 5: Billing Collection (Usage Event)
+# Phase 4: Successful Model Execution (Rate Limits Passed)
+HTTP/1.1 200 OK
+Content-Type: application/json
+X-Model-Executed: llama3-70b
+X-Request-Duration: 2.5s
+{"choices": [{"message": {"content": "The derivative of x² is 2x..."}}]}
+
+# Phase 4.5: Adaptive Fallback Flow (Conditional - Only if Rate Limit Exceeded)
+# ❌ Rate limit exceeded for llama3-70b, triggering fallback
+
+# Phase 4.5a: Fallback Model Request from vSR
+POST /internal/vsr/fallback
+Authorization: Bearer vsr-service-token
+X-Original-Model: llama3-70b
+X-User-Tier: premium
+X-Fallback-Reason: rate_limit_exceeded
+X-Session-Context: sess-abc123
+
+# Phase 4.5b: vSR Fallback Response
+HTTP/1.1 200 OK
+X-Fallback-Model: llama3-8b               # 🆕 NEW - Fallback model selection
+X-Fallback-Applied: true                  # 🆕 NEW - Fallback flag
+X-Original-Model: llama3-70b              # 🆕 NEW - Original model tracking
+X-Fallback-Reason: rate_limit_exceeded    # 🆕 NEW - Fallback trigger reason
+X-System-Prompt-Injected: true            # 🆕 NEW - Transparency prompt added
+
+# Phase 4.5c: Re-authorization for Fallback Model (Restart from Phase 3)
+POST /models/llama3-8b/chat/completions   # 🔄 NEW PATH - Fallback model
+Authorization: Bearer sa-token-xyz
+X-User-ID: math-user-123                  # ✅ Passed through
+X-Tier: premium                           # ✅ Passed through
+X-MaaS-Model-Selected: llama3-8b          # 🆕 NEW - Updated for fallback
+X-Category: mathematics                   # ✅ Passed through
+X-Fallback-Applied: true                  # 🆕 NEW - Fallback context
+X-Original-Model: llama3-70b              # 🆕 NEW - Audit trail
+
+# Phase 4.5d: Fallback Model Execution (After Re-authorization & Rate Limiting)
+HTTP/1.1 200 OK  
+Content-Type: application/json
+X-Model-Executed: llama3-8b               # 🆕 NEW - Actual executed model
+X-Fallback-Applied: true                  # 🆕 NEW - User transparency
+X-Fallback-Reason: "rate_limit_exceeded"  # 🆕 NEW - Explanation
+X-Request-Duration: 1.8s
+{"choices": [{"message": {"content": "[Fallback Model] The derivative of x² is 2x..."}}]}
+
+# Phase 5: Dynamic Billing Collection (Future Enhancement)
 Event: {
   "user_id": "math-user-123",
   "api_path": "/chat/completions", 
-  "selected_model": "llama3-70b",
-  "actual_cost": 0.75,
+  "requested_model": "llama3-70b",
+  "executed_model": "llama3-8b",          # 🆕 NEW - Actual executed model
+  "fallback_applied": true,               # 🆕 NEW - Fallback tracking
+  "actual_cost": 0.25,                    # 🆕 NEW - Fallback model cost
+  "cost_savings": 0.50,                   # 🆕 NEW - Savings from fallback
   "billing_override": true
 }
 ```
 
-**Error Handling and Fallbacks:**
+**Error Handling and Adaptive Fallbacks:**
 - **Authentication Failure**: 401 Unauthorized with clear error message ✅ **(Supported Today)**
 - **Authorization Failure**: 403 Forbidden with permission requirements ✅ **(Supported Today)**
-- **Rate Limit Exceeded**: 429 Too Many Requests with retry-after guidance ✅ **(Supported Today)**
-- **Model Unavailable**: Automatic fallback or 503 Service Unavailable 🆕 **(NEW - vSR Enhancement Required)**
-- **Budget Exceeded**: Cost-aware error with budget status 🆕 **(NEW - MaaS/vSR Enhancement Required)**
+- **Rate Limit Exceeded**: Adaptive fallback to cheaper model with transparency 🆕 **(NEW - Phase 4.5)**
+- **Jailbreak Detected**: HTTP 403 Forbidden with immediate termination ✅ **(vSR Security Guard)**
+- **Fallback Chain Exhausted**: 429 Too Many Requests with retry-after guidance 🆕 **(NEW - Phase 4.5)**
+- **Budget Exceeded**: Cost-aware fallback with budget status 🆕 **(NEW - MaaS/vSR Enhancement)**
+- **Infinite Loop Prevention**: Circuit breaker stops fallback after maximum attempts 🆕 **(NEW - Phase 4.5)**
 
 **Performance Optimizations:**
-- **Caching Strategy**: Multi-layer caching for auth decisions, tier mappings, and semantic results 🔄 **(Enhanced - Both Components)**
+- **Semantic Caching**: Phase 2 similarity-based caching reduces ExtProc processing time ✅ **(vSR Intelligence)**
+- **Authorization Context Caching**: Phase 1 tier and permission caching for faster decisions 🔄 **(Enhanced - MaaS)**  
+- **Adaptive Routing**: Phase 4.5 intelligent fallback reduces 429 errors and improves UX 🆕 **(NEW - Hybrid Flow)**
 - **Connection Pooling**: Efficient connections between gateway components ✅ **(Supported Today)**
 - **Async Processing**: Non-blocking operations where possible ✅ **(Supported Today)**
-- **Circuit Breakers**: Protection against cascading failures 🆕 **(NEW - vSR Enhancement Required)**
 
 This Authorization-First flow ensures enterprise-grade security while enabling the intelligent routing capabilities of vSR, creating a robust and scalable foundation for the integrated platform.
 
@@ -601,15 +653,15 @@ This Authorization-First flow ensures enterprise-grade security while enabling t
 - ✅ **Usage Tracking**: Basic request/token metrics via Limitador
 - ✅ **Standard Rate Limiting**: Existing Limitador policies applied after model selection
 - ✅ **Fallback Model Authorization**: Existing RBAC for fallback models through Authorino
-- 🆕 **Rate Limit Status API**: Expose current quota usage for intelligent fallback decisions
-  *Provide real-time rate limit status to vSR for adaptive routing decisions*
-  *Needed to enable intelligent fallback when primary model quotas are exhausted*
 - 🆕 **Semantic Routing RBAC**: New resource `semantic-router.vllm.ai/semanticRouting`
   *Add RBAC resource to control which users can access intelligent routing features*
   *Needed for tier-based access control to semantic routing capabilities*
 - 🆕 **Fallback Flow Integration**: Handle re-authorization and re-rate-limiting for fallback models
   *Integrate fallback requests back through Phase 3 authorization and Phase 4 rate limiting*
   *Needed to ensure fallback models go through proper security and quota validation*
+- 🆕 **Dynamic Billing Metadata**: Inject `X-Selected-Model` header for accurate billing
+  *Capture actual executed model (including fallbacks) for precise cost calculation*
+  *Needed for billing accuracy when fallback models are used instead of requested models*
 - 🔮 **Enhanced Usage Analytics**: Track routing decisions and model performance
 
 #### vSR (vLLM Semantic Router)
@@ -617,28 +669,18 @@ This Authorization-First flow ensures enterprise-grade security while enabling t
 - ✅ **PII Detection**: Built-in scanning for personally identifiable information
 - ✅ **Jailbreak Prevention**: Prompt guard protection against malicious inputs
 - ✅ **Semantic Caching**: Similarity-based caching for improved performance
-- 🆕 **Authorization Context Integration**: Parse MaaS auth headers (`X-Tier`, `X-User-ID`)
-  *Integrate with MaaS authentication context to understand user permissions and tier*
-  *Needed for tier-aware routing decisions and security policy enforcement*
 - 🆕 **Envoy ExtProc Deployment**: Deploy as External Processor, not standalone service
   *Integrate with MaaS gateway infrastructure using Envoy ExtProc protocol*
   *Needed for seamless integration with existing MaaS authentication and rate limiting*
-- 🆕 **Rate Limit Aware Model Selection**: Check quota status before routing decisions
-  *Query current rate limit status and select available models within user quotas*
-  *Needed to prevent 429 errors and enable intelligent fallback to available models*
-- 🆕 **Adaptive Fallback System**: Automatically fallback to cheaper models when quotas exceeded
-  *Implement fallback hierarchy, inject system prompts, and trigger re-authorization flow*
-  *Needed to maintain service availability and ensure proper security for fallback models*
-- 🆕 **Tier-Based Model Selection**: Route based on user tier and model access permissions
-  *Enhance model selection logic to respect MaaS tier limitations and budgets*
-  *Needed for enforcing business rules and preventing unauthorized expensive model access*
+- 🆕 **Adaptive Fallback System**: Provide fallback model when requested in Phase 4.5
+  *When rate limits are exceeded, respond to fallback requests with cheaper alternative models*
+  *Needed to support Phase 4.5 conditional fallback flow after rate limiting failures*
 - 🆕 **Path-Based Model Routing**: Modify request path to route to selected model endpoint
   *Rewrite request path from generic `/chat/completions` to model-specific path*
   *Needed to leverage MaaS's existing path-based routing to KServe services*
 - 🆕 **User Isolation**: Enhance semantic caching with user/tenant boundaries
   *Ensure cache isolation between different users and tiers for security*
   *Needed for multi-tenant security and preventing data leakage between users*
-- 🔮 **Dynamic Billing Metadata**: Inject `X-Selected-Model` header for accurate billing
 
 #### ✅ **Existing Capabilities Leveraged:**
 - **MaaS**: Token validation, tier resolution, basic RBAC, standard rate limiting
