@@ -596,19 +596,15 @@ X-Fallback-Reason: rate_limit_exceeded
 
 **Key Security Requirements:**
 
-**Header Sanitization** - Envoy must strip malicious billing headers from client requests to prevent billing fraud:
-```yaml
-# Envoy HTTPRoute filter configuration
-http_filters:
-- name: envoy.filters.http.header_to_metadata
-  request_rules:
-  - header: "X-MaaS-Model-Selected"
-    remove: true  # Prevent clients from injecting fake billing data
-  - header: "X-Model-Cost" 
-    remove: true  # Prevent cost manipulation
-  - header: "X-Security-Passed"
-    remove: true  # Prevent security bypass attempts
-```
+For comprehensive security analysis including header trust boundary protection, access control, and fraud prevention, see:
+**[📋 Security Considerations](security-considerations.md)**
+
+This document covers:
+- Header sanitization to prevent billing fraud
+- Semantic routing access control and authorization
+- Performance protection through conditional ExtProc
+- Enhanced threat modeling and risk assessment
+- Comprehensive security monitoring and audit trails
 
 **Core Technologies**: ✅ MaaS (Authorino, Limitador) + 🆕 vSR (Python ExtProc)
 
