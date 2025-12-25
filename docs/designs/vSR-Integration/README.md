@@ -640,51 +640,27 @@ This Authorization-First flow ensures enterprise-grade security while enabling t
 ### 4.4 Implementation Requirements Summary
 
 #### RHCL (Red Hat Connectivity Link) - Authorino/Limitador
+*These are accurate. RHCL/Authorino is a policy engine, so these are just configurations (YAML), not new code.*
 - ✅ **Token Validation**: Kubernetes `TokenReview` for Service Account tokens
 - ✅ **Tier Resolution**: HTTP metadata lookup to MaaS API for user tier mapping
-- ✅ **Header Injection**: `X-User-ID`, `X-Tier`, `X-Groups` via JSON injection
-- ✅ **RBAC Authorization**: SubjectAccessReview for model access control
-- ✅ **User/Tier Rate Limiting**: Request and token limits per tier via Limitador
+- ✅ **Context Injection**: `X-User-ID`, `X-Tier`, `X-Groups` injected for downstream consumption
+- ✅ **RBAC Authorization**: SubjectAccessReview for model access control (Applied in Phase 3)
+- ✅ **Limitador Integration**: Enforce limits based on `X-MaaS-Model-Selected` (from vSR) and `X-User-ID`
 
-#### MaaS (Models-as-a-Service)
-- ✅ **Service Account Token Management**: Generate tokens for model access
-- ✅ **Tier Mapping**: Map user groups to subscription tiers (free/premium/enterprise)
-- ✅ **Model Discovery**: List available KServe/LLMInferenceService models
-- ✅ **Usage Tracking**: Basic request/token metrics via Limitador
-- ✅ **Standard Rate Limiting**: Existing Limitador policies applied after model selection
-- ✅ **Fallback Model Authorization**: Existing RBAC for fallback models through Authorino
+#### MaaS (Models-as-a-Service) & Gateway
+- ✅ **Header Sanitization**: **[CRITICAL]** Configure Gateway to strip `X-MaaS-*` headers *(Standard Envoy Config)*
+- ✅ **Filter Chain Orchestration**: Configure Envoy logic order *(Standard Envoy Config)*
+- 🆕 **WASM/Lua Circuit Breaker**: **[NEW]** Develop an Envoy filter/script to intercept Limitador 429 responses, query vSR for fallback, and internally redirect *(Custom Code Required)*
 - 🆕 **Semantic Routing RBAC**: New resource `semantic-router.vllm.ai/semanticRouting`
-  *Add RBAC resource to control which users can access intelligent routing features*
-  *Needed for tier-based access control to semantic routing capabilities*
-- 🆕 **Fallback Flow Integration**: Handle re-authorization and re-rate-limiting for fallback models
-  *Integrate fallback requests back through Phase 3 authorization and Phase 4 rate limiting*
-  *Needed to ensure fallback models go through proper security and quota validation*
-- 🆕 **Dynamic Billing Metadata**: Inject `X-Selected-Model` header for accurate billing
-  *Capture actual executed model (including fallbacks) for precise cost calculation*
-  *Needed for billing accuracy when fallback models are used instead of requested models*
-- 🔮 **Enhanced Usage Analytics**: Track routing decisions and model performance
+- 🆕 **Async Billing Ingestion**: Update billing collector to prioritize `X-MaaS-Model-Executed`
 
 #### vSR (vLLM Semantic Router)
-- ✅ **Semantic Classification**: Intent classification using embedding models
-- ✅ **PII Detection**: Built-in scanning for personally identifiable information
-- ✅ **Jailbreak Prevention**: Prompt guard protection against malicious inputs
-- ✅ **Semantic Caching**: Similarity-based caching for improved performance
-- 🆕 **Envoy ExtProc Deployment**: Deploy as External Processor, not standalone service
-  *Integrate with MaaS gateway infrastructure using Envoy ExtProc protocol*
-  *Needed for seamless integration with existing MaaS authentication and rate limiting*
-- 🆕 **Adaptive Fallback System**: Provide fallback model when requested in Phase 4.5
-  *When rate limits are exceeded, respond to fallback requests with cheaper alternative models*
-  *Needed to support Phase 4.5 conditional fallback flow after rate limiting failures*
-- 🆕 **Path-Based Model Routing**: Modify request path to route to selected model endpoint
-  *Rewrite request path from generic `/chat/completions` to model-specific path*
-  *Needed to leverage MaaS's existing path-based routing to KServe services*
-- 🆕 **User Isolation**: Enhance semantic caching with user/tenant boundaries
-  *Ensure cache isolation between different users and tiers for security*
-  *Needed for multi-tenant security and preventing data leakage between users*
-
-#### ✅ **Existing Capabilities Leveraged:**
-- **MaaS**: Token validation, tier resolution, basic RBAC, standard rate limiting
-- **vSR**: Semantic classification, PII detection, jailbreak prevention, semantic caching
+- 🆕 **Envoy ExtProc Implementation**: Server implementing the Envoy External Processor gRPC interface *(Must wrap the Python library in a gRPC server)*
+- 🆕 **Multi-Tenant Cache Isolation**: **[CRITICAL]** Logic to namespace semantic cache entries using `X-User-ID` to prevent data leakage *(Custom logic on top of library)*
+- 🆕 **Model Registry Sync**: Mechanism for vSR to poll MaaS models
+- 🆕 **Cost-Aware Routing Logic**: Logic to select models based on Tier
+- 🆕 **Fallback Resolution API**: Logic to handle "exclude_model" requests
+- 🆕 **Transparent Header Injection**: Inject observability headers
 
 
 ## 5. Monitoring and Observability
