@@ -358,10 +358,10 @@ Kuadrant → Authorino authorization for the selected model
 **⚖️ Phase 4: Rate Limiting & Execution**  
 Kuadrant → Limitador rate limiting (requests + tokens) then model execution
 
-**🔄 Phase 5: Adaptive Fallback Logic**  
-When rate limits are exceeded, request fallback model from vSR and retry
+**🔄 Phase 4.5: Adaptive Fallback Logic** *(Conditional - Only if Phase 4 fails)*  
+When rate limits are exceeded, request fallback model from vSR and retry authorization + rate limiting
 
-**📊 Phase 6: Dynamic Billing** *(Future Extension)*  
+**📊 Phase 5: Dynamic Billing** *(Future Extension)*  
 Accurate cost tracking based on actual model selection
 
 This hybrid approach ensures **enterprise security** and **intelligent routing**, with proven rate limiting applied after model selection for optimal user experience.
@@ -485,7 +485,7 @@ sequenceDiagram
 
 **Benefits**: ⚖️ Standard MaaS rate limiting, both request and token limits, proven reliability
 
-#### Phase 5: Adaptive Fallback Logic
+#### Phase 4.5: Adaptive Fallback Logic (Conditional)
 
 ```mermaid
 sequenceDiagram
@@ -503,7 +503,9 @@ sequenceDiagram
     vSR-->>Gateway: Fallback route + headers<br/>X-Fallback-Applied: true<br/>X-Original-Model: llama3-70b<br/>X-Fallback-Reason: rate_limit_exceeded
     
     Note over Gateway: Restart from Phase 3 with fallback model
-    Gateway->>Kuadrant: Apply Policies for llama3-8b
+    Gateway->>Kuadrant: Apply Authorization Policies for llama3-8b
+    Kuadrant->>Authorino: Validate User Access to llama3-8b
+    Authorino-->>Kuadrant: Fallback Model Authorized
     Kuadrant->>Limitador: Check Rate Limits for llama3-8b
     
     alt Fallback Rate Limit OK
@@ -524,7 +526,7 @@ sequenceDiagram
 - 💰 **Cost Optimization**: Utilizes available cheaper models when expensive ones are exhausted
 - 🎯 **Improved UX**: Maintains service availability under quota pressure
 
-#### Phase 6: Dynamic Billing (Future Extension)
+#### Phase 5: Dynamic Billing (Future Extension)
 
 ```mermaid
 sequenceDiagram
@@ -540,9 +542,9 @@ sequenceDiagram
 
 ### 4.3 Implementation Summary
 
-**Core Integration Scope** (Phases 1-5): The vSR-MaaS integration focuses on combining MaaS authentication/authorization with vSR intelligent routing, model-specific authorization, standard rate limiting, and adaptive fallback logic.
+**Core Integration Scope** (Phases 1-4.5): The vSR-MaaS integration focuses on combining MaaS authentication/authorization with vSR intelligent routing, model-specific authorization, standard rate limiting, and conditional adaptive fallback logic.
 
-**Future Extensions** (Phase 6): Enhanced billing features that can be added later without disrupting the core integration.
+**Future Extensions** (Phase 5): Enhanced billing features that can be added later without disrupting the core integration.
 
 **Architecture Pattern**: Envoy External Processing (ExtProc) enables seamless integration between MaaS security framework and vSR intelligence without disrupting existing systems.
 
@@ -710,12 +712,16 @@ This Authorization-First flow ensures enterprise-grade security while enabling t
 - ✅ **Model Discovery**: List available KServe/LLMInferenceService models
 - ✅ **Usage Tracking**: Basic request/token metrics via Limitador
 - ✅ **Standard Rate Limiting**: Existing Limitador policies applied after model selection
+- ✅ **Fallback Model Authorization**: Existing RBAC for fallback models through Authorino
 - 🆕 **Rate Limit Status API**: Expose current quota usage for intelligent fallback decisions
   *Provide real-time rate limit status to vSR for adaptive routing decisions*
   *Needed to enable intelligent fallback when primary model quotas are exhausted*
 - 🆕 **Semantic Routing RBAC**: New resource `semantic-router.vllm.ai/semanticRouting`
   *Add RBAC resource to control which users can access intelligent routing features*
   *Needed for tier-based access control to semantic routing capabilities*
+- 🆕 **Fallback Flow Integration**: Handle re-authorization and re-rate-limiting for fallback models
+  *Integrate fallback requests back through Phase 3 authorization and Phase 4 rate limiting*
+  *Needed to ensure fallback models go through proper security and quota validation*
 - 🔮 **Enhanced Usage Analytics**: Track routing decisions and model performance
 
 #### vSR (vLLM Semantic Router)
@@ -733,8 +739,8 @@ This Authorization-First flow ensures enterprise-grade security while enabling t
   *Query current rate limit status and select available models within user quotas*
   *Needed to prevent 429 errors and enable intelligent fallback to available models*
 - 🆕 **Adaptive Fallback System**: Automatically fallback to cheaper models when quotas exceeded
-  *Implement fallback hierarchy and inject system prompts explaining model changes*
-  *Needed to maintain service availability and improve user experience under quota pressure*
+  *Implement fallback hierarchy, inject system prompts, and trigger re-authorization flow*
+  *Needed to maintain service availability and ensure proper security for fallback models*
 - 🆕 **Tier-Based Model Selection**: Route based on user tier and model access permissions
   *Enhance model selection logic to respect MaaS tier limitations and budgets*
   *Needed for enforcing business rules and preventing unauthorized expensive model access*
