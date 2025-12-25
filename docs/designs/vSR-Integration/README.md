@@ -504,6 +504,59 @@ sequenceDiagram
 
 **Architecture Pattern**: Envoy External Processing (ExtProc) enables seamless integration between MaaS security framework and vSR intelligence without disrupting existing systems.
 
+### 4.4 Performance Considerations & Latency Management
+
+**Critical Challenge**: LLM users expect low Time-To-First-Token (TTFT), but vSR semantic classification requires buffering the complete request body before processing can begin.
+
+**Latency Risk**: For large context windows (10k+ tokens), the request buffering + BERT classification + model selection pipeline can add 500ms+ latency, significantly degrading user experience.
+
+**Mitigation Strategy**: Tiered processing approach based on request size and user tier:
+
+#### Request Size-Based Processing
+
+```mermaid
+flowchart TD
+    Request[Incoming Request] --> SizeCheck{Request Size}
+    SizeCheck -->|< 2KB| FastPath[Fast Path: Full vSR Processing]
+    SizeCheck -->|2-8KB| StandardPath[Standard Path: 200ms Budget]
+    SizeCheck -->|> 8KB| LargePath[Large Request Path]
+    
+    FastPath --> FullvSR[PII + Jailbreak + Classification]
+    StandardPath --> LimitedvSR[PII + Jailbreak Only]
+    LargePath --> TierCheck{User Tier}
+    
+    TierCheck -->|Enterprise| BlockingvSR[Full vSR - Accept Latency]
+    TierCheck -->|Premium/Free| AsyncAudit[Async Audit Mode]
+    
+    AsyncAudit --> StreamStart[Start Model Streaming]
+    AsyncAudit --> BackgroundvSR[Background PII/Security Check]
+    BackgroundvSR --> TerminateStream{Security Violation?}
+    TerminateStream -->|Yes| StreamKill[Terminate Stream]
+    TerminateStream -->|No| ContinueStream[Continue Stream]
+```
+
+#### Tier-Based Processing Modes
+
+| **Tier** | **Request Size** | **Processing Mode** | **Latency Budget** | **Security Level** |
+|----------|------------------|---------------------|-------------------|-------------------|
+| **Enterprise** | Any | Blocking (Full vSR) | 500ms max | Maximum security |
+| **Premium** | < 8KB | Blocking (Full vSR) | 200ms max | Full protection |
+| **Premium** | > 8KB | Async Audit | 50ms initial | Stream + monitor |
+| **Free** | < 2KB | Fast Path | 100ms max | Basic protection |
+| **Free** | > 2KB | Bypass + Log | 20ms max | Minimal processing |
+
+**Risk Mitigation Benefits**:
+- **User Experience**: Maintains TTFT expectations for majority of requests
+- **Security**: Enterprise users get full protection regardless of latency
+- **Scalability**: Large requests don't block the vSR processing pipeline
+- **Cost Control**: Processing resources allocated based on user value
+
+**Implementation Requirements**:
+- **Request Size Detection**: Envoy buffer limits and size-based routing
+- **Tier-Aware Processing**: vSR integration with user tier context
+- **Async Audit Capability**: Background security monitoring with stream termination
+- **Latency Monitoring**: Real-time tracking of vSR processing time
+
 **Key Security Requirements:**
 
 **Header Sanitization** - Envoy must strip malicious billing headers from client requests to prevent billing fraud:
@@ -628,6 +681,15 @@ This Authorization-First flow ensures enterprise-grade security while enabling t
 - 🆕 **Envoy ExtProc Deployment**: Deploy as External Processor, not standalone service
   *Integrate with MaaS gateway infrastructure using Envoy ExtProc protocol*
   *Needed for seamless integration with existing MaaS authentication and rate limiting*
+- 🆕 **Request Size-Based Processing**: Implement tiered processing based on request size
+  *Route small requests through full vSR, large requests through optimized paths*
+  *Needed to maintain low Time-To-First-Token (TTFT) for user experience*
+- 🆕 **Async Audit Mode**: Background security monitoring with stream termination capability
+  *Process large requests asynchronously while streaming starts, terminate if violations found*
+  *Needed to balance security with performance for large context windows*
+- 🆕 **Latency Budget Management**: Enforce processing time limits based on user tier
+  *Implement 200ms budget for premium, 500ms for enterprise, 100ms for free tier*
+  *Needed to prevent vSR processing from degrading TTFT beyond acceptable limits*
 - 🆕 **Tier-Based Model Selection**: Route based on user tier and model access permissions
   *Enhance model selection logic to respect MaaS tier limitations and budgets*
   *Needed for enforcing business rules and preventing unauthorized expensive model access*
