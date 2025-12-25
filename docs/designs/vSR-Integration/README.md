@@ -355,13 +355,13 @@ Semantic caching, PII detection, jailbreak prevention, and intelligent model rou
 **🔐 Phase 3: Model-Specific Authorization**  
 Kuadrant → Authorino authorization for the selected model
 
-**🔄 Phase 3.5: Adaptive Fallback Logic**  
-Rate limit pre-check and intelligent model fallback with user notification
-
 **⚖️ Phase 4: Rate Limiting & Execution**  
 Kuadrant → Limitador rate limiting (requests + tokens) then model execution
 
-**📊 Phase 5: Dynamic Billing** *(Future Extension)*  
+**🔄 Phase 5: Adaptive Fallback Logic**  
+When rate limits are exceeded, request fallback model from vSR and retry
+
+**📊 Phase 6: Dynamic Billing** *(Future Extension)*  
 Accurate cost tracking based on actual model selection
 
 This hybrid approach ensures **enterprise security** and **intelligent routing**, with proven rate limiting applied after model selection for optimal user experience.
@@ -451,37 +451,6 @@ sequenceDiagram
 
 **Benefits**: 🔐 Standard MaaS model authorization, granular access control per model
 
-#### Phase 3.5: Adaptive Fallback Logic
-
-```mermaid
-sequenceDiagram
-    participant Gateway as maas-default-gateway
-    participant vSR as vSR ExtProc
-    participant Limitador as Rate Limit Checker
-    participant MaaS as MaaS API
-    
-    Note over Gateway,MaaS: After model authorization (llama3-70b authorized)
-    Gateway->>vSR: Check rate limit status before routing
-    vSR->>Limitador: Query current rate limit status
-    Limitador->>MaaS: Get user quota remaining for llama3-70b
-    MaaS-->>Limitador: Quota: 2/20 requests remaining
-    Limitador-->>vSR: Rate limit status response
-    
-    alt Quota Available
-        vSR-->>Gateway: Route to llama3-70b (original selection)
-    else Quota Exhausted
-        vSR->>vSR: Find available fallback model (llama3-8b)
-        vSR->>vSR: Inject system prompt explanation
-        vSR-->>Gateway: Route to llama3-8b + fallback headers<br/>X-Fallback-Applied: true<br/>X-Original-Model: llama3-70b<br/>X-Fallback-Reason: rate_limit_exceeded
-    end
-```
-
-**Benefits**: 
-- 🔄 **Intelligent Fallback**: Users get responses instead of 429 errors
-- 📊 **Transparent Communication**: Users understand why they got a different model
-- 💰 **Cost Optimization**: Utilizes available cheaper models when expensive ones are exhausted
-- 🎯 **Improved UX**: Maintains service availability under quota pressure
-
 #### Phase 4: Rate Limiting & Model Execution
 
 ```mermaid
@@ -505,7 +474,7 @@ sequenceDiagram
     alt Rate Limit Exceeded
         Limitador-->>Kuadrant: Rate Limit Exceeded
         Kuadrant-->>Gateway: Policy Decision (Deny)
-        Gateway-->>Client: 429 Too Many Requests
+        Note over Gateway: Proceed to Phase 5 (Fallback)
     else Rate Limits OK
         Limitador-->>Kuadrant: Rate Limits Passed
         Kuadrant-->>Gateway: Policy Decision (Allow)
@@ -516,7 +485,46 @@ sequenceDiagram
 
 **Benefits**: ⚖️ Standard MaaS rate limiting, both request and token limits, proven reliability
 
-#### Phase 5: Dynamic Billing (Future Extension)
+#### Phase 5: Adaptive Fallback Logic
+
+```mermaid
+sequenceDiagram
+    participant Gateway as maas-default-gateway
+    participant vSR as vSR ExtProc
+    participant Kuadrant
+    participant Limitador
+    participant KServe as Fallback Model
+    participant Client
+    
+    Note over Gateway,Client: After rate limit exceeded in Phase 4
+    Gateway->>vSR: Request fallback model for llama3-70b
+    vSR->>vSR: Find available fallback model (llama3-8b)
+    vSR->>vSR: Inject system prompt explanation
+    vSR-->>Gateway: Fallback route + headers<br/>X-Fallback-Applied: true<br/>X-Original-Model: llama3-70b<br/>X-Fallback-Reason: rate_limit_exceeded
+    
+    Note over Gateway: Restart from Phase 3 with fallback model
+    Gateway->>Kuadrant: Apply Policies for llama3-8b
+    Kuadrant->>Limitador: Check Rate Limits for llama3-8b
+    
+    alt Fallback Rate Limit OK
+        Limitador-->>Kuadrant: Fallback Rate Limits Passed
+        Kuadrant-->>Gateway: Policy Decision (Allow)
+        Gateway->>KServe: Forward to Fallback Model
+        KServe-->>Client: Fallback Model Response with Explanation
+    else All Models Exhausted
+        Limitador-->>Kuadrant: All Quotas Exceeded
+        Kuadrant-->>Gateway: Policy Decision (Deny)
+        Gateway-->>Client: 429 Too Many Requests + Retry After
+    end
+```
+
+**Benefits**: 
+- 🔄 **Intelligent Fallback**: Users get responses instead of immediate 429 errors
+- 📊 **Transparent Communication**: Users understand why they got a different model
+- 💰 **Cost Optimization**: Utilizes available cheaper models when expensive ones are exhausted
+- 🎯 **Improved UX**: Maintains service availability under quota pressure
+
+#### Phase 6: Dynamic Billing (Future Extension)
 
 ```mermaid
 sequenceDiagram
@@ -532,9 +540,9 @@ sequenceDiagram
 
 ### 4.3 Implementation Summary
 
-**Core Integration Scope** (Phases 1-4): The vSR-MaaS integration focuses on combining MaaS authentication/authorization with vSR intelligent routing, model-specific authorization, adaptive fallback logic, and standard rate limiting.
+**Core Integration Scope** (Phases 1-5): The vSR-MaaS integration focuses on combining MaaS authentication/authorization with vSR intelligent routing, model-specific authorization, standard rate limiting, and adaptive fallback logic.
 
-**Future Extensions** (Phase 5): Enhanced billing features that can be added later without disrupting the core integration.
+**Future Extensions** (Phase 6): Enhanced billing features that can be added later without disrupting the core integration.
 
 **Architecture Pattern**: Envoy External Processing (ExtProc) enables seamless integration between MaaS security framework and vSR intelligence without disrupting existing systems.
 
