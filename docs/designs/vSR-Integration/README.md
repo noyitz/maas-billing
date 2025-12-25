@@ -344,24 +344,21 @@ Based on the analysis of both options, we recommend the **Hybrid Authorization-F
 
 ### 4.1 Hybrid Approach: Best of Both Worlds
 
-The solution implements a **multi-phase hybrid flow** that maximizes security, performance, intelligent routing, and cost control:
+The solution implements a **multi-phase hybrid flow** that maximizes security, performance, and intelligent routing:
 
-**🔒 Phase 1: MaaS Security-First**  
-Proven MaaS authentication, authorization, and tier-based rate limiting
+**🔒 Phase 1: MaaS Authentication & Authorization**  
+Proven MaaS authentication, authorization, and vSR access control
 
 **🧠 Phase 2: vSR Intelligence**  
 Semantic caching, PII detection, jailbreak prevention, and intelligent model routing
 
-**🔐 Phase 3: Optional Fine-Grained Auth** *(Future Extension)*  
-Additional model-specific authorization when needed
+**⚖️ Phase 3: Standard Rate Limiting**  
+Existing Limitador rate limiting (requests + tokens) applied after model selection
 
-**⚖️ Phase 4: Model-Aware Rate Limiting**  
-Cost-aware rate limiting based on selected model
-
-**📊 Phase 5: Dynamic Billing** *(Future Extension)*  
+**📊 Phase 4: Dynamic Billing** *(Future Extension)*  
 Accurate cost tracking based on actual model selection
 
-This hybrid approach ensures **enterprise security** and **intelligent cost control**, with extensibility for advanced features.
+This hybrid approach ensures **enterprise security** and **intelligent routing**, with proven rate limiting applied after model selection for optimal user experience.
 
 #### Architecture Overview
 
@@ -369,26 +366,23 @@ The integration uses **Envoy External Processing (ExtProc)** to seamlessly combi
 
 ### 4.2 Phase-by-Phase Implementation
 
-#### Phase 1: MaaS Security-First Authentication & Rate Limiting
+#### Phase 1: MaaS Authentication & Authorization
 
 ```mermaid
 sequenceDiagram
     participant Client
     participant Gateway as maas-default-gateway
     participant Authorino
-    participant Limitador
     participant MaaSAPI as MaaS API
     
     Client->>Gateway: POST /chat/completions + Service Account Token
     Gateway->>Authorino: Apply AuthPolicy (Identity Check)
-    Authorino->>MaaSAPI: Tier lookup + Basic RBAC
-    MaaSAPI-->>Authorino: User authorized for API access
+    Authorino->>MaaSAPI: Tier lookup + vSR Access Check
+    MaaSAPI-->>Authorino: User authorized for vSR access
     Authorino-->>Gateway: Auth Success + Context Headers<br/>X-User-ID, X-Tier, X-Groups
-    Gateway->>Limitador: Apply Tier-based Rate Limits
-    Limitador-->>Gateway: Rate limit check passed
 ```
 
-**Benefits**: ✅ Early authentication, proven security model, tier-based access control, ✅ Tier-based rate limiting
+**Benefits**: ✅ Early authentication, proven security model, vSR access control
 
 #### Phase 2: vSR Intelligence with Advanced Features
 
@@ -446,40 +440,36 @@ sequenceDiagram
 
 **Benefits**: 🔐 Granular control when needed, performance optimization when skipped
 
-#### Phase 4: Model-Aware Rate Limiting
+#### Phase 3: Standard Rate Limiting & Model Execution
 
 ```mermaid
 sequenceDiagram
     participant Gateway as maas-default-gateway
     participant Limitador
-    participant vSR as vSR Headers
+    participant KServe as Selected Model
+    participant Client
     
-    Note over Gateway,vSR: After vSR model selection and authorization
-    Gateway->>Limitador: Apply Model-Specific Rate Limits<br/>X-MaaS-Model-Selected: llama3-70b<br/>X-Model-Cost: 0.75
+    Note over Gateway,KServe: After vSR model selection
+    Gateway->>Limitador: Apply Existing Rate Limits<br/>X-User-ID, X-Tier (standard policies)
     
-    alt Model Rate Limit Exceeded
-        Limitador-->>Gateway: 429 Too Many Requests (Model-specific)
-        Gateway-->>Client: 429 + Suggested Fallback Model
-    else Model Rate Limit OK
+    alt Rate Limit Exceeded
+        Limitador-->>Gateway: 429 Too Many Requests
+        Gateway-->>Client: 429 Too Many Requests
+    else Rate Limit OK
         Limitador-->>Gateway: Rate limit check passed
-        Note over Gateway: Proceed to model execution
+        Gateway->>KServe: Forward to Selected Model
+        KServe-->>Client: Model Response
     end
 ```
 
-**Benefits**: ⚖️ Cost-aware rate limiting, model-specific quotas, intelligent fallback suggestions
+**Benefits**: ⚖️ Proven rate limiting, standard user experience, no new complexity
 
-#### Phase 5: Model Execution & Dynamic Billing (Future Extension)
+#### Phase 4: Dynamic Billing (Future Extension)
 
 ```mermaid
 sequenceDiagram
     participant Gateway as maas-default-gateway
-    participant KServe as KServe Model
     participant Billing as Billing Collector
-    participant Client
-    
-    Gateway->>KServe: Forward to Selected Model (llama3-70b)
-    KServe-->>Gateway: Model Response
-    Gateway-->>Client: Response
     
     Note over Billing: Billing Feedback Loop (Asynchronous)
     Gateway->>Billing: Usage Event with X-MaaS-Model-Selected Header (Non-Blocking)
@@ -490,9 +480,9 @@ sequenceDiagram
 
 ### 4.3 Implementation Summary
 
-**Core Integration Scope** (Phases 1-2, 4): The vSR-MaaS integration focuses on combining MaaS authentication/rate limiting with vSR intelligent routing and model-aware rate limiting.
+**Core Integration Scope** (Phases 1-3): The vSR-MaaS integration focuses on combining MaaS authentication/authorization with vSR intelligent routing and standard rate limiting.
 
-**Future Extensions** (Phases 3, 5): Optional fine-grained authorization and enhanced billing features that can be added later without disrupting the core integration.
+**Future Extensions** (Phase 4): Enhanced billing features that can be added later without disrupting the core integration.
 
 **Architecture Pattern**: Envoy External Processing (ExtProc) enables seamless integration between MaaS security framework and vSR intelligence without disrupting existing systems.
 
@@ -516,7 +506,7 @@ http_filters:
 
 **Integration Benefits**:
 - **Security**: Proven MaaS authentication + vSR PII detection + jailbreak prevention  
-- **Rate Limiting**: Tier-based + model-aware rate limiting for cost control
+- **Rate Limiting**: Existing tier-based rate limiting applied after intelligent routing
 - **Intelligence**: ModernBERT semantic classification with intelligent model routing
 - **Performance**: Semantic caching + async processing for optimal latency
 - **Privacy**: Automated PII detection and protection across all requests
@@ -550,16 +540,21 @@ X-User-ID: math-user-123                    # ✅ Supported Today
 X-Tier: premium                             # ✅ Supported Today
 X-Groups: "tier-premium-users,specialists"  # 🔍 Likely Supported
 
-# Phase 3: After vSR ExtProc (Security & Routing)
-POST /chat/completions
+# Phase 3: After vSR ExtProc (Model Selection & Routing)
+POST /models/llama3-70b/chat/completions    # 🆕 NEW - Path rewritten for model routing
 Authorization: Bearer sa-token-xyz
-Host: llama3-70b-service                    # 🆕 NEW - Host override for routing  
-X-MaaS-Model-Selected: llama3-70b          # 🆕 NEW - Critical for billing
-X-Model-Cost: 0.75                         # 🆕 NEW - Actual cost override
+X-User-ID: math-user-123                    # ✅ Passed through from Phase 2
+X-Tier: premium                             # ✅ Passed through from Phase 2
+X-MaaS-Model-Selected: llama3-70b          # 🆕 NEW - For billing tracking
 X-Category: mathematics                     # 🆕 NEW - Semantic classification
-X-Security-Passed: true                    # 🆕 NEW - Security validation status
 
-# Phase 4: Billing Collection (Usage Event)
+# Phase 4: Rate Limiting & Model Execution
+POST /models/llama3-70b/chat/completions
+Authorization: Bearer sa-token-xyz
+X-User-ID: math-user-123                    # ✅ Used for rate limiting
+X-Tier: premium                             # ✅ Used for rate limiting
+
+# Phase 5: Billing Collection (Usage Event)
 Event: {
   "user_id": "math-user-123",
   "api_path": "/chat/completions", 
@@ -592,9 +587,6 @@ This Authorization-First flow ensures enterprise-grade security while enabling t
 - ✅ **Header Injection**: `X-User-ID`, `X-Tier`, `X-Groups` via JSON injection
 - ✅ **RBAC Authorization**: SubjectAccessReview for model access control
 - ✅ **User/Tier Rate Limiting**: Request and token limits per tier via Limitador
-- 🆕 **Model-Aware Rate Limiting**: Apply different limits based on selected model cost
-  *Extend Limitador to accept model metadata from vSR for cost-based rate limiting*
-  *Needed for preventing expensive model abuse and enforcing budget controls*
 
 #### MaaS (Models-as-a-Service)
 - ✅ **Service Account Token Management**: Generate tokens for model access
