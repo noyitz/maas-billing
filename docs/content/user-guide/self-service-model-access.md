@@ -4,9 +4,12 @@ This guide is for **end users** who want to use AI models through the MaaS platf
 
 ## 🎯 What is MaaS?
 
-The Model-as-a-Service (MaaS) platform provides access to AI models through a simple API. Your organization's administrator has set up the platform and configured access for your team.
+The Models-as-a-Service (MaaS) platform provides access to AI models through a simple API. Your organization's administrator has set up the platform and configured access for your team.
 
 ## Getting Your Access Token
+
+!!! tip
+    For a detailed explanation of how token authentication works, including the underlying service account architecture and security model, see [Understanding Token Management](../configuration-and-management/token-management.md).
 
 ### Step 1: Get Your OpenShift Authentication Token
 

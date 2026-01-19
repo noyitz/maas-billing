@@ -24,7 +24,7 @@ First, we need to deploy the core infrastructure. That includes:
 ```shell
 PROJECT_DIR=$(git rev-parse --show-toplevel) 
 for ns in opendatahub kuadrant-system llm maas-api; do kubectl create ns $ns || true; done
-"${PROJECT_DIR}/deployment/scripts/install-dependencies.sh" --cert-manager --kuadrant
+"${PROJECT_DIR}/scripts/install-dependencies.sh" --kuadrant
 ```
 
 #### Enabling GW API
@@ -101,8 +101,7 @@ Patch `AuthPolicy` with the correct audience for Openshift Identities:
 ```shell
 AUD="$(kubectl create token default --duration=10m \
   | cut -d. -f2 \
-  | base64 -d 2>/dev/null \
-  | jq -r '.aud[0]')"
+  | jq -Rr '@base64d | fromjson | .aud[0]' 2>/dev/null)"
 
 echo "Patching AuthPolicy with audience: $AUD"
 
@@ -137,9 +136,16 @@ PROJECT_DIR=$(git rev-parse --show-toplevel)
 kustomize build ${PROJECT_DIR}/docs/samples/models/simulator | kubectl apply --server-side=true --force-conflicts -f -
 ```
 
-#### Getting the token
+#### Getting a token
 
-To see the token, you can use the following commands:
+MaaS API supports two types of tokens:
+
+1.  **Ephemeral Tokens** - Stateless tokens that provide better security posture as they can be easily refreshed by the caller using OpenShift Identity. These tokens can live as long as API keys (up to the configured expiration), making them suitable for both temporary and long-term access scenarios.
+2.  **API Keys** - Named, long-lived tokens for applications (stored in SQLite database). Suitable for services or applications that need persistent access with metadata tracking.
+
+##### Ephemeral Tokens
+
+To get a short-lived ephemeral token:
 
 ```shell
 HOST="$(kubectl get gateway -l app.kubernetes.io/instance=maas-default-gateway -n openshift-ingress -o jsonpath='{.items[0].status.addresses[0].value}')"
@@ -162,6 +168,82 @@ TOKEN=$(echo $TOKEN_RESPONSE | jq -r .token)
 
 > [!NOTE]
 > This is a self-service endpoint that issues ephemeral tokens. Openshift Identity (`$(oc whoami -t)`) is used as a refresh token.
+
+##### API Keys (Named Tokens)
+
+To create a named API key that can be tracked and managed:
+
+```shell
+HOST="$(kubectl get gateway -l app.kubernetes.io/instance=maas-default-gateway -n openshift-ingress -o jsonpath='{.items[0].status.addresses[0].value}')"
+
+# Create a named API key
+API_KEY_RESPONSE=$(curl -sSk \
+  -H "Authorization: Bearer $(oc whoami -t)" \
+  -H "Content-Type: application/json" \
+  -X POST \
+  -d '{
+    "expiration": "720h",
+    "name": "my-application-key"
+  }' \
+  "${HOST}/maas-api/v1/api-keys")
+
+echo $API_KEY_RESPONSE | jq -r .
+TOKEN=$(echo $API_KEY_RESPONSE | jq -r .token)
+
+# List all your API keys
+curl -sSk \
+  -H "Authorization: Bearer $(oc whoami -t)" \
+  "${HOST}/maas-api/v1/api-keys" | jq .
+
+# Get specific API key by ID
+API_KEY_ID="<id-from-list>"
+curl -sSk \
+  -H "Authorization: Bearer $(oc whoami -t)" \
+  "${HOST}/maas-api/v1/api-keys/${API_KEY_ID}" | jq .
+
+# Revoke all tokens (ephemeral and API keys)
+curl -sSk \
+  -H "Authorization: Bearer $(oc whoami -t)" \
+  -X DELETE \
+  "${HOST}/maas-api/v1/tokens"
+```
+
+> [!NOTE]
+> API keys are stored in the configured database (see [Storage Configuration](#storage-configuration)) with metadata including creation date, expiration date, and status. They can be listed and inspected individually. To revoke tokens, use `DELETE /v1/tokens` which revokes all tokens (ephemeral and API keys) by recreating the Service Account and marking API key metadata as expired.
+
+### Storage Configuration
+
+maas-api supports three storage modes, controlled by the `--storage` flag:
+
+| Mode | Flag | Use Case | Persistence |
+|------|------|----------|-------------|
+| **In-memory** (default) | `--storage=in-memory` | Development/testing | ❌ Data lost on restart |
+| **Disk** | `--storage=disk` | Single replica, demos | ✅ Survives restarts |
+| **External** | `--storage=external` | Production, HA | ✅ Full persistence |
+
+#### Quick Start
+
+```bash
+# In-memory (default - no configuration needed)
+
+# Disk storage (persistent, single replica)
+kustomize build deployment/overlays/tls-backend-disk | kubectl apply -f -
+
+# External database - see docs/samples/database/external for configuration
+```
+
+#### Configuration Flags and Environment Variables
+
+| Flag | Environment Variable | Default | Description |
+|------|---------------------|---------|-------------|
+| `--storage` | `STORAGE_MODE` | `in-memory` | Storage mode: `in-memory`, `disk`, or `external` |
+| `--db-connection-url` | `DB_CONNECTION_URL` | - | Database URL (required for `--storage=external`) |
+| `--data-path` | `DATA_PATH` | `/data/maas-api.db` | Path for disk storage |
+| - | `DB_MAX_OPEN_CONNS` | 25 | Max open connections (external mode only) |
+| - | `DB_MAX_IDLE_CONNS` | 5 | Max idle connections (external mode only) |
+| - | `DB_CONN_MAX_LIFETIME_SECONDS` | 300 | Connection max lifetime in seconds (external mode only) |
+
+For detailed external database setup instructions, see [docs/samples/database/external](../docs/samples/database/external/README.md).
 
 #### Calling the model and hitting the rate limit
 

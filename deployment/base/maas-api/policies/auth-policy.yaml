@@ -2,7 +2,6 @@ apiVersion: kuadrant.io/v1
 kind: AuthPolicy
 metadata:
   name: maas-api-auth-policy
-  namespace: maas-api
 spec:
   targetRef:
     group: gateway.networking.k8s.io
@@ -16,3 +15,12 @@ spec:
           audiences:
             - https://kubernetes.default.svc
             - maas-default-gateway-sa
+    response:
+      success:
+        headers:
+          X-MaaS-Username:
+            plain:
+              selector: auth.identity.user.username
+          X-MaaS-Group:
+            plain:
+              selector: auth.identity.user.groups.@tostr

@@ -2,6 +2,11 @@
 
 This document covers the observability stack for the MaaS Platform, including metrics collection, monitoring, and visualization.
 
+!!! warning "Important"
+     [User Workload Monitoring](https://docs.redhat.com/en/documentation/openshift_container_platform/4.19/html/monitoring/configuring-user-workload-monitoring) must be enabled in order to collect metrics.
+
+     Add `enableUserWorkload: true` to the `cluster-monitoring-config` in the `openshift-monitoring` namespace
+
 ## Overview
 
 As part of Dev Preview MaaS Platform includes a basic observability stack that provides insights into system performance, usage patterns, and operational health. The observability stack consists of:
@@ -60,6 +65,33 @@ spec:
     path: /metrics
 ```
 
+## High Availability for MaaS Metrics
+
+For production deployments where metric persistence across pod restarts and scaling events is critical, you should configure Limitador to use Redis as a backend storage solution.
+
+### Why High Availability Matters
+
+By default, Limitador stores rate-limiting counters in memory, which means:
+
+- All hit counts are lost when pods restart
+- Metrics reset when pods are rescheduled or scaled down
+- No persistence across cluster maintenance or updates
+
+### Setting Up Persistent Metrics
+
+To enable persistent metric counts, refer to the detailed guide:
+
+**[Configuring Redis storage for rate limiting](https://docs.redhat.com/en/documentation/red_hat_connectivity_link/1.1/html/installing_connectivity_link_on_openshift/configure-redis_connectivity-link)**
+
+This Red Hat documentation provides:
+
+- Step-by-step Redis configuration for OpenShift
+- Secret management for Redis credentials
+- Limitador custom resource updates
+- Production-ready setup instructions
+
+For local development and testing, you can also use our [Limitador Persistence](limitador-persistence.md) guide which includes a basic Redis setup script that works with any Kubernetes cluster.
+
 ## Grafana Dashboards
 
 ### MaaS Platform Overview Dashboard
@@ -67,7 +99,7 @@ spec:
 We are providing a basic dashboard for the MaaS Platform that can be used to get a quick
 overview of the system. Its definition can be found and imported from the following 
 link:
-[maas-token-metrics-dashboard.json](https://github.com/opendatahub-io/maas-billing/blob/main/docs/samples/dashboards/maas-token-metrics-dashboard.json)
+[maas-token-metrics-dashboard.json](https://github.com/opendatahub-io/models-as-a-service/blob/main/docs/samples/dashboards/maas-token-metrics-dashboard.json)
 
 See more detailed description of the Grafana Dashboard in [its README of the 
-repository](https://github.com/opendatahub-io/maas-billing/tree/main/docs/samples/dashboards).
+repository](https://github.com/opendatahub-io/models-as-a-service/tree/main/docs/samples/dashboards).

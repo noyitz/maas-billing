@@ -101,7 +101,7 @@ This annotation automatically sets up the necessary RBAC (Role and RoleBinding) 
     apiVersion: rbac.authorization.k8s.io/v1
     kind: Role
     metadata:
-      name: <tier>-model-post-access
+      name: model-post-access
       namespace: <model-namespace>
     rules:
       - apiGroups: ["serving.kserve.io"]
@@ -111,7 +111,7 @@ This annotation automatically sets up the necessary RBAC (Role and RoleBinding) 
     apiVersion: rbac.authorization.k8s.io/v1
     kind: RoleBinding
     metadata:
-      name: <tier>-model-post-access-tier-binding
+      name: model-post-access-tier-binding
       namespace: <model-namespace>
     subjects:
       - kind: Group
@@ -119,9 +119,12 @@ This annotation automatically sets up the necessary RBAC (Role and RoleBinding) 
         apiGroup: rbac.authorization.k8s.io
     roleRef:
       kind: Role
-      name: <tier>-model-post-access
+      name: model-post-access
       apiGroup: rbac.authorization.k8s.io
     ```
+
+!!!info "Why the custom `post` verb?"
+    We intentionally use a custom verb (`post`) instead of standard Kubernetes verbs like `get` or `create`. This is the **only** RBAC permission required for model access. By using a non-standard verb that doesn't exist in Kubernetes' built-in authorization, we minimize the security surface - these service accounts cannot accidentally read, modify, or delete any cluster resources.
 
 ### 3. Configure Rate Limiting
 
@@ -145,10 +148,10 @@ EOF
 **Rate Limit Policy Configuration Explained:**
 
 1. **Tier definition** - Each tier (free, premium, enterprise) gets its own configuration block (this is just a naming convention, it is not used for the actual tier resolution)
-2. **Request limit** - Maximum number of requests allowed per time window
+2. **Token limit** - Maximum number of total tokens allowed per time window
 3. **Time window** - Duration after which the request counter resets
 4. **Predicate condition** - Determines when this tier's limits apply based on user authentication
-5. **Counter expression** - Tracks requests per user ID for reporting purposes
+5. **Counter expression** - Tracks token consumption per user ID (globally)
 
 !!!Warning "Important"
     The predicate condition (not the Tier Definition) is used to determine when this tier's limits apply based on user authentication. It is a CEL expression that is evaluated by the Authorino policy engine.
@@ -169,7 +172,7 @@ Configuration can be validated by logging in as a user belonging to the appropri
 
 ```bash
 # Validate the configuration with 20 requests and a max tokens limit of 500
-./deployment/scripts/validate-deployment.sh --rate-limit-requests 20 --max-tokens 500
+./scripts/validate-deployment.sh --rate-limit-requests 20 --max-tokens 500
 ```
 
 **Example Output:**
@@ -235,3 +238,26 @@ EOF
 
 kubectl delete pod -l control-plane=controller-manager -n kuadrant-system
 ```
+
+!!!Warning "Modifying Tiers During Active Usage"
+    Modifying the tier definitions (ConfigMap) while users have active requests may cause side effects due to caching and eventual consistency. See [Tier Modification Known Issues](./tier-modification-known-issues.md) for details on:
+
+    - Propagation delays for group changes
+    - Tier name immutability
+    - Monitoring inconsistencies
+    - Service interruptions on tier deletion
+
+!!!Warning "Removing Group Membership During Active Usage"
+    Removing a user from a group while they have active tokens may not immediately revoke access. See [Group Membership Known Issues](./group-membership-known-issues.md) for details on:
+
+    - Existing tokens remaining valid until expiration
+    - Rate limiting continuing at the old tier
+    - Service Account persistence after group removal
+    - Recommended practices for group membership changes
+
+!!!info "Model Tier Access Changes"
+    Removing a model from a tier's access list (by updating the `alpha.maas.opendatahub.io/tiers` annotation) takes effect immediately. See [Model Tier Access Behavior](./model-access-behavior.md#model-tier-access-changes-during-active-usage) for details on:
+
+    - Expected behaviors when access is revoked
+    - RBAC propagation timing
+    - Recommended practices for tier access changes

@@ -17,12 +17,12 @@ func NewHandler(mapper *Mapper) *Handler {
 	}
 }
 
-// TierLookup handles POST /tiers/lookup with JSON body containing groups array
+// TierLookup handles POST /tiers/lookup with JSON body containing groups array.
 //
 // This endpoint determines the highest level tier for a user with multiple group memberships following the rules:
 // 1. Finds all tiers that contain any of the user's groups
 // 2. Selects the tier with the highest level value (higher numbers win)
-// 3. If multiple tiers have the same level, the first one found wins (order of tiers in the configuration source)
+// 3. If multiple tiers have the same level, the first one found wins (order of tiers in the configuration source).
 func (h *Handler) TierLookup(c *gin.Context) {
 	var req LookupRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -33,7 +33,7 @@ func (h *Handler) TierLookup(c *gin.Context) {
 		return
 	}
 
-	tier, err := h.mapper.GetTierForGroups(c.Request.Context(), req.Groups...)
+	tier, err := h.mapper.GetTierForGroups(req.Groups...)
 	if err != nil {
 		var groupNotFoundErr *GroupNotFoundError
 		if errors.As(err, &groupNotFoundErr) {
@@ -52,8 +52,14 @@ func (h *Handler) TierLookup(c *gin.Context) {
 		return
 	}
 
+	displayName := tier.DisplayName
+	if displayName == "" {
+		displayName = tier.Name
+	}
+
 	response := LookupResponse{
-		Tier: tier,
+		Tier:        tier.Name,
+		DisplayName: displayName,
 	}
 
 	c.JSON(http.StatusOK, response)

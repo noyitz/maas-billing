@@ -7,11 +7,12 @@ This guide explains how to configure `LLMInferenceService` resources to be picke
 The MaaS platform uses a **segregated gateway approach**, where models explicitly opt-in to MaaS capabilities by referencing the `maas-default-gateway`. This provides flexibility and isolation between different model deployment scenarios.
 
 ```mermaid
+%%{init: {'theme':'base', 'themeVariables': { 'fontSize':'16px', 'fontFamily':'system-ui, -apple-system, sans-serif', 'edgeLabelBackground':'transparent', 'labelBackground':'transparent', 'tertiaryColor':'transparent'}}}%%
 graph TB
-    subgraph cluster["OpenShift/Kubernetes Cluster"]
+    subgraph cluster["OpenShift/K8s Cluster"]
         subgraph gateways["Gateway Layer"]
-            defaultGW["<b>Default Gateway</b><br/>(ODH/KServe)<br/><br/>✓ Existing auth model<br/>✓ No rate limits<br/>"]
-            maasGW["<b>MaaS Gateway</b><br/>(maas-default-gateway)<br/><br/>✓ Token authentication<br/>✓ Tier-based rate limits<br/>✓ Token consumption "]
+            defaultGW["Default Gateway<br/>(ODH/KServe)<br/><br/>✓ Existing auth model<br/>✓ No rate limits<br/>"]
+            maasGW["MaaS Gateway<br/>(maas-default-gateway)<br/><br/>✓ Token authentication<br/>✓ Tier-based rate limits<br/>✓ Token consumption "]
         end
 
         subgraph models["Model Deployments"]
@@ -19,24 +20,32 @@ graph TB
             maasModel["LLMInferenceService<br/>(MaaS-enabled)<br/><br/>spec:<br/>  model: ...<br/>  router:<br/>    gateway:<br/>      refs:<br/>        - name: maas-default-gateway"]
         end
 
-        defaultGW -.->|"Routes to"| standardModel
-        maasGW ==>|"Routes to"| maasModel
+        defaultGW -.->|Routes to| standardModel
+        maasGW ==>|Routes to| maasModel
     end
 
-    users["Users/Clients"] -->|"Default ODH auth"| defaultGW
-    apiUsers["API Clients"] -->|"Bearer token"| maasGW
+    users["Users/Clients"] -->|Default ODH auth| defaultGW
+    apiUsers["API Clients"] -->|Bearer token| maasGW
 
-    style defaultGW fill:#e1f5ff
-    style maasGW fill:#fff4e6
-    style standardModel fill:#f5f5f5
-    style maasModel fill:#fff9e6
-    style cluster fill:#fafafa
-    style gateways fill:#ffffff
-    style models fill:#ffffff
+    style defaultGW fill:#1976d2,stroke:#0d47a1,stroke-width:3px,color:#fff
+    style maasGW fill:#f57c00,stroke:#e65100,stroke-width:3px,color:#fff
+    style standardModel fill:#78909c,stroke:#546e7a,stroke-width:3px,color:#fff
+    style maasModel fill:#ffa726,stroke:#f57c00,stroke-width:3px,color:#fff
+    style cluster fill:none,stroke:#666,stroke-width:2px
+    style gateways fill:none,stroke:#5c6bc0,stroke-width:2px
+    style models fill:none,stroke:#5c6bc0,stroke-width:2px
 ```
 
 !!! note
     The `maas-default-gateway` is created automatically during MaaS platform installation. You don't need to create it manually.
+
+### Benefits
+
+- **Flexibility**: Different models can have different security and access requirements
+- **Progressive Adoption**: Teams can adopt MaaS features incrementally
+- **Production Control**: Production models get full policy enforcement if needed
+- **Multi-Tenancy**: Different teams can use different gateways in the same cluster
+- **Blast Radius Containment**: Issues with one gateway don't affect the other
 
 ## Prerequisites
 
@@ -261,9 +270,13 @@ curl -sSk -H "Authorization: Bearer $TOKEN" \
 - Check that RBAC was properly created for your tier
 - Verify the service account in your token has the correct tier namespace
 
+!!!Warning "Removing Models from Tiers During Active Usage"
+    When updating the `alpha.maas.opendatahub.io/tiers` annotation to remove a tier, be aware that active requests may be affected. See [Model Tier Access Behavior](./model-access-behavior.md#model-tier-access-changes-during-active-usage) for details on expected behaviors and recommended practices.
+
 ## References
 
 - [Tier Management](./tier-overview.md) - Learn about configuring tier access
 - [Tier Configuration](./tier-configuration.md) - Detailed tier setup instructions
+- [Model Tier Access Behavior](./model-access-behavior.md) - Expected behaviors and operational considerations
 - [Architecture Overview](../architecture.md) - Understand the overall MaaS architecture
 - [KServe LLMInferenceService Documentation](https://kserve.github.io/website/) - Official KServe documentation
