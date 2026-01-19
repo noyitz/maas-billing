@@ -3,6 +3,8 @@ kind: LLMInferenceService
 metadata:
   name: single-node-no-scheduler-nvidia-gpu
   namespace: llm
+  annotations:
+    alpha.maas.opendatahub.io/tiers: '[]'
 spec:
   model:
     uri: hf://Qwen/Qwen3-0.6B
@@ -10,6 +12,11 @@ spec:
   replicas: 1
   router:
     route: { }
+    # Connect to MaaS-enabled gateway
+    gateway:
+      refs:
+        - name: maas-default-gateway
+          namespace: openshift-ingress
   template:
     nodeSelector:
       nvidia.com/gpu.present: "true"
@@ -32,12 +39,12 @@ spec:
             # Run vLLM with HTTPS using KServe certificates
             # Use enforce-eager to avoid Triton compilation issues on Tesla T4
             exec vllm serve /mnt/models \
-              --served-model-name "Qwen/Qwen3-0.6B" \
+              --served-model-name "{{ .Spec.Model.Name }}" \
               --port 8000 \
               --trust-remote-code \
               --disable-log-requests \
-              --ssl-certfile /etc/ssl/certs/tls.crt \
-              --ssl-keyfile /etc/ssl/certs/tls.key \
+              --ssl-certfile /var/run/kserve/tls/tls.crt \
+              --ssl-keyfile /var/run/kserve/tls/tls.key \
               --enforce-eager \
               --max-model-len 8192
         env:
@@ -48,6 +55,9 @@ spec:
             value: "false"  # Disable Triton
           - name: VLLM_WORKER_MULTIPROC_METHOD
             value: "spawn"  # Use spawn instead of fork
+          # Tool calling support for vLLM
+          - name: VLLM_ADDITIONAL_ARGS
+            value: "--tool-call-parser granite --enable-auto-tool-choice"
           # Add CUDA visibility
           - name: NVIDIA_VISIBLE_DEVICES
             value: "all"

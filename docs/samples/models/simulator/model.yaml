@@ -2,13 +2,20 @@ apiVersion: serving.kserve.io/v1alpha1
 kind: LLMInferenceService
 metadata:
   name: simulated
+  annotations:
+    alpha.maas.opendatahub.io/tiers: '[]'
 spec:
   model:
     uri: hf://facebook/opt-125m
     name: facebook/opt-125m
   replicas: 1
-  router:
-    route: { }
+  router: 
+    route: {}
+    # Connect to MaaS-enabled gateway
+    gateway:
+      refs:
+        - name: maas-default-gateway
+          namespace: openshift-ingress
   template:
     containers:
       - name: main
@@ -19,13 +26,13 @@ spec:
         - --port
         - "8000" 
         - --model
-        - facebook-opt-125m-simulated
+        - facebook/opt-125m
         - --mode
         - random
         - --ssl-certfile
-        - /etc/ssl/certs/tls.crt
+        - /var/run/kserve/tls/tls.crt
         - --ssl-keyfile
-        - /etc/ssl/certs/tls.key
+        - /var/run/kserve/tls/tls.key
         env:
           - name: POD_NAME
             valueFrom:

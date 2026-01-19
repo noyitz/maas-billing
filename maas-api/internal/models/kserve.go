@@ -1,174 +1,127 @@
 package models
 
 import (
-	"context"
+	"errors"
 	"fmt"
-	"log"
-	"strings"
 
+	kservev1beta1 "github.com/kserve/kserve/pkg/apis/serving/v1beta1"
+	kservelistersv1alpha1 "github.com/kserve/kserve/pkg/client/listers/serving/v1alpha1"
+	kservelistersv1beta1 "github.com/kserve/kserve/pkg/client/listers/serving/v1beta1"
 	"github.com/openai/openai-go/v2"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
-	"k8s.io/apimachinery/pkg/runtime/schema"
-	"k8s.io/client-go/dynamic"
+	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/labels"
 	"knative.dev/pkg/apis"
+	gatewaylisters "sigs.k8s.io/gateway-api/pkg/client/listers/apis/v1"
+
+	"github.com/opendatahub-io/models-as-a-service/maas-api/internal/logger"
 )
 
-// Manager handles model discovery and listing
 type Manager struct {
-	k8sClient dynamic.Interface
+	isvcLister      kservelistersv1beta1.InferenceServiceLister
+	llmIsvcLister   kservelistersv1alpha1.LLMInferenceServiceLister
+	httpRouteLister gatewaylisters.HTTPRouteLister
+	gatewayRef      GatewayRef
+	logger          *logger.Logger
 }
 
-// NewManager creates a new model manager
-func NewManager(k8sClient dynamic.Interface) *Manager {
+func NewManager(
+	log *logger.Logger,
+	isvcLister kservelistersv1beta1.InferenceServiceLister,
+	llmIsvcLister kservelistersv1alpha1.LLMInferenceServiceLister,
+	httpRouteLister gatewaylisters.HTTPRouteLister,
+	gatewayRef GatewayRef,
+) (*Manager, error) {
+	if isvcLister == nil {
+		return nil, errors.New("isvcLister is required")
+	}
+	if llmIsvcLister == nil {
+		return nil, errors.New("llmIsvcLister is required")
+	}
+	if httpRouteLister == nil {
+		return nil, errors.New("httpRouteLister is required")
+	}
+
 	return &Manager{
-		k8sClient: k8sClient,
-	}
+		isvcLister:      isvcLister,
+		llmIsvcLister:   llmIsvcLister,
+		httpRouteLister: httpRouteLister,
+		gatewayRef:      gatewayRef,
+		logger:          log,
+	}, nil
 }
 
-// ListAvailableModels lists all InferenceServices across all namespaces
-func (m *Manager) ListAvailableModels(ctx context.Context) ([]Model, error) {
-	inferenceServiceGVR := schema.GroupVersionResource{
-		Group:    "serving.kserve.io",
-		Version:  "v1beta1",
-		Resource: "inferenceservices",
-	}
-
-	log.Printf("DEBUG: Attempting to list InferenceServices with GVR: %+v", inferenceServiceGVR)
-
-	list, err := m.k8sClient.Resource(inferenceServiceGVR).
-		Namespace(metav1.NamespaceAll).
-		List(ctx, metav1.ListOptions{})
+// ListAvailableModels lists all InferenceServices across all namespaces.
+func (m *Manager) ListAvailableModels() ([]Model, error) {
+	list, err := m.isvcLister.List(labels.Everything())
 	if err != nil {
-		log.Printf("DEBUG: Failed to list InferenceServices: %v", err)
 		return nil, fmt.Errorf("failed to list InferenceServices: %w", err)
 	}
 
-	log.Printf("DEBUG: Found %d InferenceServices", len(list.Items))
-
-	return toModels(list)
+	return m.inferenceServicesToModels(list)
 }
 
-// ListAvailableLLMs lists all LLMInferenceServices across all namespaces.
-func (m *Manager) ListAvailableLLMs(ctx context.Context) ([]Model, error) {
-	llmGVR := schema.GroupVersionResource{
-		Group:    "serving.kserve.io",
-		Version:  "v1alpha1",
-		Resource: "llminferenceservices",
-	}
+func (m *Manager) inferenceServicesToModels(items []*kservev1beta1.InferenceService) ([]Model, error) {
+	models := make([]Model, 0, len(items))
 
-	log.Printf("DEBUG: Attempting to list LLMInferenceServices with GVR: %+v", llmGVR)
+	for _, item := range items {
+		url := m.findInferenceServiceURL(item)
+		if url == nil {
+			m.logger.Debug("Failed to find URL for InferenceService")
+		}
 
-	list, err := m.k8sClient.Resource(llmGVR).
-		Namespace(metav1.NamespaceAll).
-		List(ctx, metav1.ListOptions{})
-	if err != nil {
-		log.Printf("DEBUG: Failed to list LLMInferenceServices: %v", err)
-		return nil, fmt.Errorf("failed to list LLMInferenceServices: %w", err)
-	}
-
-	log.Printf("DEBUG: Found %d LLMInferenceServices", len(list.Items))
-
-	return toModels(list)
-}
-
-func toModels(list *unstructured.UnstructuredList) ([]Model, error) {
-	models := make([]Model, 0, len(list.Items))
-
-	for _, item := range list.Items {
-		url, errURL := findURL(item)
-		if errURL != nil {
-			log.Printf("DEBUG: Failed to find URL for %s: %v", item.GetKind(), errURL)
+		modelID := item.Name
+		if item.Spec.Predictor.Model != nil && item.Spec.Predictor.Model.ModelFormat.Name != "" {
+			modelID = item.Spec.Predictor.Model.ModelFormat.Name
 		}
 
 		models = append(models, Model{
 			Model: openai.Model{
-				ID:      item.GetName(),
+				ID:      modelID,
 				Object:  "model",
-				OwnedBy: item.GetNamespace(),
-				Created: item.GetCreationTimestamp().Unix(),
+				OwnedBy: item.Namespace,
+				Created: item.CreationTimestamp.Unix(),
 			},
 			URL:   url,
-			Ready: checkReadiness(item),
+			Ready: m.checkInferenceServiceReadiness(item),
 		})
 	}
 
 	return models, nil
 }
 
-func findURL(item unstructured.Unstructured) (*apis.URL, error) {
-	if s, ok, err := unstructured.NestedString(item.Object, "status", "url"); err != nil {
-		return nil, fmt.Errorf("failed to read status.url for %s/%s: %w",
-			item.GetNamespace(), item.GetName(), err)
-	} else if ok && strings.TrimSpace(s) != "" {
-		return apis.ParseURL(s)
+func (m *Manager) findInferenceServiceURL(is *kservev1beta1.InferenceService) *apis.URL {
+	if is.Status.URL != nil {
+		return is.Status.URL
 	}
 
-	// Fallback: scan status.addresses for the first usable URL.
-	addresses, found, err := unstructured.NestedSlice(item.Object, "status", "addresses")
-	if err != nil {
-		return nil, fmt.Errorf("failed to read status.addresses for %s/%s: %w",
-			item.GetNamespace(), item.GetName(), err)
-	}
-	if !found || len(addresses) == 0 {
-		return nil, fmt.Errorf("no status.url and no status.addresses for %s/%s",
-			item.GetNamespace(), item.GetName())
-	}
-	for _, a := range addresses {
-		m, ok := a.(map[string]any)
-		if !ok {
-			continue
-		}
-		if u, ok, _ := unstructured.NestedString(m, "url"); ok && strings.TrimSpace(u) != "" {
-			return apis.ParseURL(u)
-		}
+	if is.Status.Address != nil && is.Status.Address.URL != nil {
+		return is.Status.Address.URL
 	}
 
-	return nil, fmt.Errorf("no usable URL in status.addresses for %s/%s",
-		item.GetNamespace(), item.GetName())
+	m.logger.Debug("No URL found for InferenceService")
+	return nil
 }
 
-func checkReadiness(item unstructured.Unstructured) bool {
-	if item.GetDeletionTimestamp() != nil {
+func (m *Manager) checkInferenceServiceReadiness(is *kservev1beta1.InferenceService) bool {
+	if is.DeletionTimestamp != nil {
 		return false
 	}
 
-	// If observedGeneration lags, status is stale, might not be ready yet.
-	if gen := item.GetGeneration(); gen > 0 {
-		if og, found, _ := unstructured.NestedInt64(item.Object, "status", "observedGeneration"); found && og < gen {
-			log.Printf("DEBUG: observedGeneration %d is stale, not ready yet", og)
-			return false
-		}
-	}
-
-	conds, found, err := unstructured.NestedSlice(item.Object, "status", "conditions")
-	if err != nil {
-		log.Printf("ERROR: Failed to find conditions: %v", err)
-		return false
-	}
-	if !found || len(conds) == 0 {
-		log.Printf("DEBUG: No conditions found")
+	if is.Generation > 0 && is.Status.ObservedGeneration != is.Generation {
+		m.logger.Debug("ObservedGeneration is stale, not ready yet",
+			"observed_generation", is.Status.ObservedGeneration,
+			"expected_generation", is.Generation,
+		)
 		return false
 	}
 
-	// Ensure all conditions have the status "True"
-	for _, c := range conds {
-		m, ok := c.(map[string]any)
-		if !ok {
-			continue
-		}
+	if len(is.Status.Conditions) == 0 {
+		m.logger.Debug("No conditions found for InferenceService")
+		return false
+	}
 
-		// Default is not ready if status field missing
-		status := "false"
-		if s, ok, _ := unstructured.NestedString(m, "status"); ok {
-			status = strings.ToLower(s)
-		} else if b, ok, _ := unstructured.NestedBool(m, "status"); ok {
-			if b {
-				status = "true"
-			}
-		}
-
-		if status != "true" {
+	for _, cond := range is.Status.Conditions {
+		if cond.Status != corev1.ConditionTrue {
 			return false
 		}
 	}

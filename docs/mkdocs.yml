@@ -1,0 +1,112 @@
+site_name: ODH Models-as-a-Service Documentation
+site_url: https://opendatahub-io.github.io/models-as-a-service
+repo_url: https://github.com/opendatahub-io/models-as-a-service
+repo_name: opendatahub-io/models-as-a-service
+
+# Set the docs directory to the content subdirectory
+docs_dir: content
+
+theme:
+  name: material
+  favicon: assets/favicon.ico
+  logo: assets/favicon.ico
+  features:
+    - navigation.tabs
+    - navigation.sections
+    - navigation.expand
+    - navigation.top
+    - search.highlight
+    - search.share
+    - content.code.copy
+    - content.code.annotate
+    - search.suggest
+    - search.boost
+    - navigation.instant
+  palette:
+    - scheme: slate
+      primary: white
+      accent: blue
+      background: '#0d1117'
+      surface: '#161b22'
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+    - scheme: default
+      primary: black
+      accent: blue
+      background: '#ffffff'
+      surface: '#f6f8fa'
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+
+plugins:
+  - search:
+      lang: en
+      separator: '[\s\u200b\-_,:!=\[\]()"`/]+|\.(?!\d)|&[lg]t;|(?!\b)(?=[A-Z][a-z])'
+  - git-revision-date-localized:
+      enable_creation_date: true
+
+nav:
+  - Home: index.md
+  - Quick Start: quickstart.md
+  - Architecture: architecture.md
+  - Administrator Guide:
+    - Prerequisites:
+      - Overview: install/prerequisites.md
+      - Operator Setup: install/platform-setup.md
+    - Installation:
+      - Models-as-a-Service: install/maas-setup.md
+      - Validation: install/validation.md
+    - Configuration & Management:
+      - Tier Management: configuration-and-management/tier-overview.md
+      - Tier Configuration: configuration-and-management/tier-configuration.md
+      - Tier Concepts: configuration-and-management/tier-concepts.md
+      - Token Management: configuration-and-management/token-management.md
+      - TLS Configuration: configuration-and-management/tls-configuration.md
+    - Model Setup: configuration-and-management/model-setup.md
+    - Known Issues:
+      - Group Membership: configuration-and-management/group-membership-known-issues.md
+      - Tier Modification: configuration-and-management/tier-modification-known-issues.md
+      - Model Access: configuration-and-management/model-access-behavior.md
+    - Advanced Administration:
+      - Observability: advanced-administration/observability.md
+      - Limitador Persistence: advanced-administration/limitador-persistence.md
+      - Storage Configuration: advanced-administration/storage-configuration.md
+  - End User Guide:
+    - Self Service Model Access: user-guide/self-service-model-access.md
+
+extra:
+  version:
+    provider: mike
+    default: latest
+
+markdown_extensions:
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.inlinehilite
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.superfences
+  - pymdownx.tasklist:
+      clickable_checkbox: true
+  - pymdownx.tilde
+  - pymdownx.caret
+  - pymdownx.mark
+  - pymdownx.smartsymbols
+  - pymdownx.emoji:
+      emoji_index: !!python/name:material.extensions.emoji.twemoji
+      emoji_generator: !!python/name:material.extensions.emoji.to_svg
+  - admonition
+  - pymdownx.details
+  - pymdownx.superfences
+  - pymdownx.tabbed:
+      alternate_style: true
+  - tables
+  - attr_list
+  - md_in_html

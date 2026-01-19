@@ -4,33 +4,48 @@ import (
 	"context"
 	"errors"
 	"flag"
-	"log"
+	"fmt"
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
-	"k8s.io/client-go/informers"
-	"k8s.io/client-go/tools/cache"
 
-	"github.com/opendatahub-io/maas-billing/maas-api/internal/auth"
-	"github.com/opendatahub-io/maas-billing/maas-api/internal/config"
-	"github.com/opendatahub-io/maas-billing/maas-api/internal/handlers"
-	"github.com/opendatahub-io/maas-billing/maas-api/internal/keys"
-	"github.com/opendatahub-io/maas-billing/maas-api/internal/models"
-	"github.com/opendatahub-io/maas-billing/maas-api/internal/teams"
-	"github.com/opendatahub-io/maas-billing/maas-api/internal/tier"
-	"github.com/opendatahub-io/maas-billing/maas-api/internal/token"
+	"github.com/opendatahub-io/models-as-a-service/maas-api/internal/api_keys"
+	"github.com/opendatahub-io/models-as-a-service/maas-api/internal/config"
+	"github.com/opendatahub-io/models-as-a-service/maas-api/internal/constant"
+	"github.com/opendatahub-io/models-as-a-service/maas-api/internal/handlers"
+	"github.com/opendatahub-io/models-as-a-service/maas-api/internal/logger"
+	"github.com/opendatahub-io/models-as-a-service/maas-api/internal/models"
+	"github.com/opendatahub-io/models-as-a-service/maas-api/internal/tier"
+	"github.com/opendatahub-io/models-as-a-service/maas-api/internal/token"
 )
 
 func main() {
+	os.Exit(run())
+}
+
+func run() int {
 	cfg := config.Load()
 	flag.Parse()
 
-	gin.SetMode(gin.ReleaseMode) // Explicitly set release mode
+	appLogger := logger.New(cfg.DebugMode)
+	defer func() {
+		_ = appLogger.Sync()
+	}()
+
+	cfg.PrintDeprecationWarnings(appLogger)
+
+	if err := cfg.Validate(); err != nil {
+		appLogger.Error("Configuration validation failed", "error", err)
+		return 1
+	}
+
+	gin.SetMode(gin.ReleaseMode)
 	if cfg.DebugMode {
 		gin.SetMode(gin.DebugMode)
 	}
@@ -52,144 +67,153 @@ func main() {
 	router.OPTIONS("/*path", func(c *gin.Context) { c.Status(204) })
 
 	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 
-	registerHandlers(ctx, router, cfg)
+	store, err := initStore(ctx, appLogger, cfg)
+	if err != nil {
+		appLogger.Error("Failed to initialize token store", "error", err)
+		return 1
+	}
+	defer func() {
+		if err := store.Close(); err != nil {
+			appLogger.Error("Failed to close token store", "error", err)
+		}
+	}()
 
-	srv := &http.Server{
-		Addr:              ":" + cfg.Port,
-		Handler:           router,
-		ReadHeaderTimeout: 5 * time.Second,
-		ReadTimeout:       15 * time.Second,
-		WriteTimeout:      30 * time.Second,
-		IdleTimeout:       60 * time.Second,
-		MaxHeaderBytes:    1 << 20,
+	if err := registerHandlers(ctx, appLogger, router, cfg, store); err != nil {
+		appLogger.Error("Failed to register handlers", "error", err)
+		return 1
 	}
 
+	srv, err := newServer(cfg, router)
+	if err != nil {
+		appLogger.Error("Failed to create server", "error", err)
+		return 1
+	}
+
+	// Channel to capture server startup errors from the goroutine
+	serverErr := make(chan error, 1)
 	go func() {
-		log.Printf("Server starting on port %s", cfg.Port)
-		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-			log.Fatalf("listen: %s\n", err)
+		appLogger.Info("Server starting", "address", cfg.Address, "secure", cfg.Secure)
+		if err := listenAndServe(srv); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			serverErr <- err
 		}
+		close(serverErr)
 	}()
 
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
-	<-quit
-	log.Println("Shutdown signal received, shutting down server...")
 
-	cancel()
+	select {
+	case err := <-serverErr:
+		if err != nil {
+			appLogger.Error("Server failed to start", "error", err)
+			return 1
+		}
+	case <-quit:
+		appLogger.Info("Shutdown signal received, shutting down server...")
+	}
 
 	shutdownCtx, cancelShutdown := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancelShutdown()
 	if err := srv.Shutdown(shutdownCtx); err != nil {
-		log.Fatal("Server forced to shutdown:", err)
+		appLogger.Error("Server forced to shutdown", "error", err)
+		return 1
 	}
 
-	log.Println("Server exited gracefully")
+	appLogger.Info("Server exited gracefully")
+	return 0
 }
 
-func registerHandlers(ctx context.Context, router *gin.Engine, cfg *config.Config) {
+// initStore creates the store based on the configured storage mode.
+//
+// Storage modes:
+//   - in-memory (default): Ephemeral storage, data lost on restart
+//   - disk: Persistent local storage using a file (single replica only)
+//   - external: External database (PostgreSQL), supports multiple replicas
+//
+//nolint:ireturn // Returns MetadataStore interface by design for pluggable storage backends.
+func initStore(ctx context.Context, log *logger.Logger, cfg *config.Config) (api_keys.MetadataStore, error) {
+	switch cfg.StorageMode {
+	case config.StorageModeInMemory, "":
+		log.Info("Using in-memory storage (data will be lost on restart). " +
+			"For persistent storage, use --storage=disk or --storage=external")
+		return api_keys.NewSQLiteStore(ctx, log, ":memory:")
+
+	case config.StorageModeDisk:
+		dataPath := strings.TrimSpace(cfg.DataPath)
+		if dataPath == "" {
+			dataPath = config.DefaultDataPath
+		}
+		log.Info("Using persistent disk storage", "path", dataPath)
+		return api_keys.NewSQLiteStore(ctx, log, dataPath)
+
+	case config.StorageModeExternal:
+		dbURL := strings.TrimSpace(cfg.DBConnectionURL)
+		if dbURL == "" {
+			return nil, errors.New("--db-connection-url is required when using --storage=external")
+		}
+		log.Info("Connecting to external database...")
+		return api_keys.NewExternalStore(ctx, log, dbURL)
+
+	default:
+		return nil, fmt.Errorf("unknown storage mode: %q (valid modes: in-memory, disk, external)", cfg.StorageMode)
+	}
+}
+
+func registerHandlers(ctx context.Context, log *logger.Logger, router *gin.Engine, cfg *config.Config, store api_keys.MetadataStore) error {
 	router.GET("/health", handlers.NewHealthHandler().HealthCheck)
 
-	clusterConfig, err := config.NewClusterConfig()
+	cluster, err := config.NewClusterConfig(cfg.Namespace, constant.DefaultResyncPeriod)
 	if err != nil {
-		log.Fatalf("Failed to create Kubernetes client: %v", err)
+		return fmt.Errorf("failed to create cluster config: %w", err)
 	}
 
-	modelMgr := models.NewManager(clusterConfig.DynClient)
-	modelsHandler := handlers.NewModelsHandler(modelMgr)
-	router.GET("/models", modelsHandler.ListModels)
-	router.GET("/v1/models", modelsHandler.ListLLMs)
-
-	switch cfg.Provider {
-	case config.Secrets:
-		configureSecretsProvider(cfg, router, clusterConfig)
-	case config.SATokens:
-		configureSATokenProvider(ctx, cfg, router, clusterConfig)
-	default:
-		log.Fatalf("Invalid provider: %s. Available providers: [secrets, sa-tokens]", cfg.Provider)
+	if !cluster.StartAndWaitForSync(ctx.Done()) {
+		return errors.New("failed to sync informer caches")
 	}
 
-}
-
-func configureSATokenProvider(ctx context.Context, cfg *config.Config, router *gin.Engine, clusterConfig *config.K8sClusterConfig) {
-	// V1 API routes
 	v1Routes := router.Group("/v1")
 
-	tierMapper := tier.NewMapper(clusterConfig.ClientSet, cfg.Name, cfg.Namespace)
-	tierHandler := tier.NewHandler(tierMapper)
-	v1Routes.POST("/tiers/lookup", tierHandler.TierLookup)
+	tierMapper := tier.NewMapper(log, cluster.ConfigMapLister, cfg.Name, cfg.Namespace)
+	v1Routes.POST("/tiers/lookup", tier.NewHandler(tierMapper).TierLookup)
 
-	informerFactory := informers.NewSharedInformerFactory(clusterConfig.ClientSet, 30*time.Second)
-
-	namespaceInformer := informerFactory.Core().V1().Namespaces()
-	serviceAccountInformer := informerFactory.Core().V1().ServiceAccounts()
-	informersSynced := []cache.InformerSynced{
-		namespaceInformer.Informer().HasSynced,
-		serviceAccountInformer.Informer().HasSynced,
+	modelManager, err := models.NewManager(
+		log,
+		cluster.InferenceServiceLister,
+		cluster.LLMInferenceServiceLister,
+		cluster.HTTPRouteLister,
+		models.GatewayRef{Name: cfg.GatewayName, Namespace: cfg.GatewayNamespace},
+	)
+	if err != nil {
+		log.Fatal("Failed to create model manager", "error", err)
 	}
 
-	informerFactory.Start(ctx.Done())
-
-	if !cache.WaitForNamedCacheSync("maas-api", ctx.Done(), informersSynced...) {
-		log.Fatalf("Failed to sync informer caches")
-	}
-
-	manager := token.NewManager(
+	tokenManager := token.NewManager(
+		log,
 		cfg.Name,
 		tierMapper,
-		clusterConfig.ClientSet,
-		namespaceInformer.Lister(),
-		serviceAccountInformer.Lister(),
+		cluster.ClientSet,
+		cluster.NamespaceLister,
+		cluster.ServiceAccountLister,
 	)
-	tokenHandler := token.NewHandler(cfg.Name, manager)
+	tokenHandler := token.NewHandler(log, cfg.Name, tokenManager)
 
-	tokenRoutes := v1Routes.Group("/tokens", token.ExtractUserInfo(token.NewReviewer(clusterConfig.ClientSet)))
+	modelsHandler := handlers.NewModelsHandler(log, modelManager, tokenManager)
+
+	apiKeyService := api_keys.NewService(tokenManager, store)
+	apiKeyHandler := api_keys.NewHandler(log, apiKeyService)
+
+	v1Routes.GET("/models", tokenHandler.ExtractUserInfo(), modelsHandler.ListLLMs)
+
+	tokenRoutes := v1Routes.Group("/tokens", tokenHandler.ExtractUserInfo())
 	tokenRoutes.POST("", tokenHandler.IssueToken)
-	tokenRoutes.DELETE("", tokenHandler.RevokeAllTokens)
-}
+	tokenRoutes.DELETE("", apiKeyHandler.RevokeAllTokens)
 
-func configureSecretsProvider(cfg *config.Config, router *gin.Engine, clusterConfig *config.K8sClusterConfig) {
-	policyMgr := teams.NewPolicyManager(
-		clusterConfig.DynClient,
-		clusterConfig.ClientSet,
-		cfg.KeyNamespace,
-		cfg.TokenRateLimitPolicyName,
-		cfg.AuthPolicyName,
-	)
+	apiKeyRoutes := v1Routes.Group("/api-keys", tokenHandler.ExtractUserInfo())
+	apiKeyRoutes.POST("", apiKeyHandler.CreateAPIKey)
+	apiKeyRoutes.GET("", apiKeyHandler.ListAPIKeys)
+	apiKeyRoutes.GET("/:id", apiKeyHandler.GetAPIKey)
 
-	teamMgr := teams.NewManager(clusterConfig.ClientSet, cfg.KeyNamespace, policyMgr)
-	keyMgr := keys.NewManager(clusterConfig.ClientSet, cfg.KeyNamespace, teamMgr)
-
-	usageHandler := handlers.NewUsageHandler(clusterConfig.ClientSet, clusterConfig.RestConfig, cfg.KeyNamespace)
-	teamsHandler := handlers.NewTeamsHandler(teamMgr)
-	keysHandler := handlers.NewKeysHandler(keyMgr, teamMgr)
-
-	if cfg.CreateDefaultTeam {
-		if err := teamMgr.CreateDefaultTeam(); err != nil {
-			log.Printf("Warning: Failed to create default team: %v", err)
-		} else {
-			log.Printf("Default team created successfully")
-		}
-	}
-
-	// Team management endpoints
-	teamRoutes := router.Group("/teams", auth.AdminAuthMiddleware())
-	teamRoutes.POST("", teamsHandler.CreateTeam)
-	teamRoutes.GET("", teamsHandler.ListTeams)
-	teamRoutes.GET("/:team_id", teamsHandler.GetTeam)
-	teamRoutes.PATCH("/:team_id", teamsHandler.UpdateTeam)
-	teamRoutes.DELETE("/:team_id", teamsHandler.DeleteTeam)
-	teamRoutes.POST("/:team_id/keys", keysHandler.CreateTeamKey)
-	teamRoutes.GET("/:team_id/keys", keysHandler.ListTeamKeys)
-	teamRoutes.GET("/:team_id/usage", usageHandler.GetTeamUsage)
-
-	// User management endpoints
-	userRoutes := router.Group("/users", auth.AdminAuthMiddleware())
-	userRoutes.GET("/:user_id/keys", keysHandler.ListUserKeys)
-	userRoutes.GET("/:user_id/usage", usageHandler.GetUserUsage)
-
-	// Key management endpoints
-	keyRoutes := router.Group("/keys", auth.AdminAuthMiddleware())
-	keyRoutes.DELETE("/:key_name", keysHandler.DeleteTeamKey)
+	return nil
 }

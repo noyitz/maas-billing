@@ -1,4 +1,4 @@
-# MaaS Platform - Models as a Service with Policy Management
+# ODH - Models as a Service with Policy Management
 
 Our goal is to create a comprehensive platform for **Models as a Service** with real-time policy management.
 
@@ -22,14 +22,15 @@ Our goal is to create a comprehensive platform for **Models as a Service** with 
 
 ### Deploy Infrastructure
 
-See the comprehensive [Deployment Guide](deployment/README.md) for detailed instructions.
+See the comprehensive [Deployment Guide](docs/content/quickstart.md) for detailed instructions.
 
 ## 📚 Documentation
 
-- [Deployment Guide](deployment/README.md) - Complete deployment instructions
-- [Local Deployment](docs/LOCAL_DEPLOYMENT.md) - Deployment guide for local development
+- [Deployment Guide](docs/content/quickstart.md) - Complete deployment instructions
 - [MaaS API Documentation](maas-api/README.md) - Go API for key management
 - [OAuth Setup Guide](docs/OAUTH_SETUP.md) - Configure OAuth authentication
+
+Online Documentation: [https://opendatahub-io.github.io/models-as-a-service/](https://opendatahub-io.github.io/models-as-a-service/)
 
 ## 🤝 Contributing
 
@@ -47,5 +48,5 @@ This project is licensed under the Apache 2.0 License.
 
 For questions or issues:
 - Open an issue on GitHub
-- Check the [deployment guide](deployment/README.md) for troubleshooting
+- Check the [deployment guide](docs/content/quickstart.md) for troubleshooting
 - Review the [samples](docs/samples/models) for examples

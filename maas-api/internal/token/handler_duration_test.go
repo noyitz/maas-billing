@@ -9,22 +9,11 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/opendatahub-io/maas-billing/maas-api/test/fixtures"
-	authv1 "k8s.io/api/authentication/v1"
+	"github.com/opendatahub-io/models-as-a-service/maas-api/internal/constant"
+	"github.com/opendatahub-io/models-as-a-service/maas-api/test/fixtures"
 )
 
 func TestIssueToken_ExpirationFormats(t *testing.T) {
-	tokenScenarios := map[string]fixtures.TokenReviewScenario{
-		"duration-test-token": {
-			Authenticated: true,
-			UserInfo: authv1.UserInfo{
-				Username: "duration-test@example.com",
-				UID:      "duration-uid",
-				Groups:   []string{"system:authenticated"},
-			},
-		},
-	}
-
 	tests := []struct {
 		name                   string
 		expiration             string
@@ -73,24 +62,27 @@ func TestIssueToken_ExpirationFormats(t *testing.T) {
 		{
 			name:            "default expiration (empty)",
 			expiration:      "",
-			expectedStatus:  http.StatusCreated,
-			shouldHaveToken: true,
-			description:     "Empty expiration should default to 4h",
+			expectedStatus:  http.StatusBadRequest,
+			shouldHaveToken: false,
+			expectedError:   "expiration must be positive",
+			description:     "Empty expiration should be rejected",
 		},
 		{
 			name:            "zero expiration",
 			expiration:      "0",
-			expectedStatus:  http.StatusCreated,
-			shouldHaveToken: true,
-			description:     "Zero expiration should default to 4h",
+			expectedStatus:  http.StatusBadRequest,
+			shouldHaveToken: false,
+			expectedError:   "expiration must be positive",
+			description:     "Zero expiration should be rejected",
 		},
 		{
 			name:                   "zero expiration in raw seconds",
 			expiration:             "0",
 			expirationInRawSeconds: true,
-			expectedStatus:         http.StatusCreated,
-			shouldHaveToken:        true,
-			description:            "Zero expiration should default to 4h",
+			expectedStatus:         http.StatusBadRequest,
+			shouldHaveToken:        false,
+			expectedError:          "expiration must be positive",
+			description:            "Zero expiration should be rejected",
 		},
 		// Invalid durations
 		{
@@ -106,7 +98,7 @@ func TestIssueToken_ExpirationFormats(t *testing.T) {
 			name:            "negative duration",
 			expiration:      "-30h",
 			expectedStatus:  http.StatusBadRequest,
-			expectedError:   "must be a positive number",
+			expectedError:   "expiration must be positive",
 			shouldHaveToken: false,
 			description:     "Negative duration should be rejected",
 		},
@@ -121,7 +113,7 @@ func TestIssueToken_ExpirationFormats(t *testing.T) {
 			name:            "no unit",
 			expiration:      "30",
 			expectedStatus:  http.StatusBadRequest,
-			expectedError:   "invalid duration \"30\": must be a positive number ending in s, m, or h",
+			expectedError:   "missing unit in duration",
 			shouldHaveToken: false,
 			description:     "Number without unit should be rejected",
 		},
@@ -144,7 +136,7 @@ func TestIssueToken_ExpirationFormats(t *testing.T) {
 			name:            "decimal without unit",
 			expiration:      "1.5",
 			expectedStatus:  http.StatusBadRequest,
-			expectedError:   "invalid duration \"1.5\": must be a positive number ending in s, m, or h",
+			expectedError:   "missing unit in duration",
 			shouldHaveToken: false,
 			description:     "Decimal without unit should be rejected",
 		},
@@ -152,8 +144,14 @@ func TestIssueToken_ExpirationFormats(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			manager, reviewer, _ := fixtures.StubTokenProviderAPIs(t, true, tokenScenarios)
-			router := fixtures.SetupTestRouter(manager, reviewer)
+			manager, _, cleanup := fixtures.StubTokenProviderAPIs(t, true)
+			defer cleanup()
+			router, cleanupRouter := fixtures.SetupTestRouter(manager)
+			defer func() {
+				if err := cleanupRouter(); err != nil {
+					t.Logf("Router cleanup error: %v", err)
+				}
+			}()
 
 			w := httptest.NewRecorder()
 
@@ -163,19 +161,21 @@ func TestIssueToken_ExpirationFormats(t *testing.T) {
 			}
 			jsonPayload := fmt.Sprintf(`
 {
-			"expiration": %s
+		"expiration": %s
 }`, expiration)
 
-			request, _ := http.NewRequest("POST", "/v1/tokens", bytes.NewBuffer([]byte(jsonPayload)))
+			request, _ := http.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/tokens", bytes.NewBufferString(jsonPayload))
 			request.Header.Set("Content-Type", "application/json")
-			request.Header.Set("Authorization", "Bearer duration-test-token")
+			// Set required X-MaaS-* headers for header-based authentication
+			request.Header.Set(constant.HeaderUsername, "duration-test@example.com")
+			request.Header.Set(constant.HeaderGroup, `["system:authenticated"]`)
 			router.ServeHTTP(w, request)
 
 			if w.Code != tt.expectedStatus {
 				t.Errorf("expected status %d, got %d. Description: %s", tt.expectedStatus, w.Code, tt.description)
 			}
 
-			var response map[string]interface{}
+			var response map[string]any
 			err := json.Unmarshal(w.Body.Bytes(), &response)
 			if err != nil {
 				t.Errorf("failed to unmarshal response: %v", err)
@@ -189,7 +189,10 @@ func TestIssueToken_ExpirationFormats(t *testing.T) {
 				if response["error"] == nil {
 					t.Errorf("expected error for invalid Expiration. Description: %s", tt.description)
 				}
-				if !strings.Contains(response["error"].(string), tt.expectedError) {
+				errorMsg, ok := response["error"].(string)
+				if !ok {
+					t.Errorf("expected error to be a string, got %T", response["error"])
+				} else if !strings.Contains(errorMsg, tt.expectedError) {
 					t.Errorf("expected error message: '%s'; got: '%v'\n", tt.expectedError, response["error"])
 				}
 			}

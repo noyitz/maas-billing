@@ -1,69 +1,141 @@
 package token
 
 import (
-	"log"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
 	"net/http"
 	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
+
+	"github.com/opendatahub-io/models-as-a-service/maas-api/internal/constant"
+	"github.com/opendatahub-io/models-as-a-service/maas-api/internal/logger"
 )
 
 type Handler struct {
 	name    string
 	manager *Manager
+	logger  *logger.Logger
 }
 
-func NewHandler(name string, manager *Manager) *Handler {
+func NewHandler(log *logger.Logger, name string, manager *Manager) *Handler {
+	if log == nil {
+		log = logger.Production()
+	}
 	return &Handler{
 		name:    name,
 		manager: manager,
+		logger:  log,
 	}
 }
 
-// ExtractUserInfo validates kubernetes tokens
-func ExtractUserInfo(reviewer *Reviewer) gin.HandlerFunc {
+// parseGroupsHeader parses the group header which comes as a JSON array.
+// Format: "[\"group1\",\"group2\",\"group3\"]" (JSON-encoded array string).
+func parseGroupsHeader(header string) ([]string, error) {
+	if header == "" {
+		return nil, errors.New("header is empty")
+	}
+
+	// Try to unmarshal as JSON array directly
+	var groups []string
+	if err := json.Unmarshal([]byte(header), &groups); err != nil {
+		return nil, fmt.Errorf("failed to parse header as JSON array: %w", err)
+	}
+
+	if len(groups) == 0 {
+		return nil, errors.New("no groups found in header")
+	}
+
+	// Trim whitespace from each group
+	for i := range groups {
+		groups[i] = strings.TrimSpace(groups[i])
+	}
+
+	return groups, nil
+}
+
+// ExtractUserInfo extracts user information from headers set by the auth policy.
+func (h *Handler) ExtractUserInfo() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		authHeader := c.GetHeader("Authorization")
-		if authHeader == "" {
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "Authorization header required"})
+		username := strings.TrimSpace(c.GetHeader(constant.HeaderUsername))
+		groupHeader := c.GetHeader(constant.HeaderGroup)
+
+		// Validate required headers exist and are not empty
+		// Missing headers indicate a configuration issue with the auth policy (internal error)
+		if username == "" {
+			h.logger.Error("Missing or empty username header",
+				"header", constant.HeaderUsername,
+			)
+			c.JSON(http.StatusInternalServerError, gin.H{
+				"error":         "Exception thrown while generating token",
+				"exceptionCode": "AUTH_FAILURE",
+				"refId":         "001",
+			})
 			c.Abort()
 			return
 		}
 
-		if !strings.HasPrefix(authHeader, "Bearer ") {
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid authorization format. Use: Authorization: Bearer <token>"})
+		if groupHeader == "" {
+			h.logger.Error("Missing group header",
+				"header", constant.HeaderGroup,
+				"username", username,
+			)
+			c.JSON(http.StatusInternalServerError, gin.H{
+				"error":         "Exception thrown while generating token",
+				"exceptionCode": "AUTH_FAILURE",
+				"refId":         "002",
+			})
 			c.Abort()
 			return
 		}
 
-		token := strings.TrimPrefix(authHeader, "Bearer ")
-		userContext, err := reviewer.ExtractUserInfo(c.Request.Context(), token)
+		// Parse groups from header - format: "[group1 group2 group3]"
+		// Parsing errors also indicate configuration issues
+		groups, err := parseGroupsHeader(groupHeader)
 		if err != nil {
-			log.Printf("Token validation failed: %v", err)
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "validation failed"})
+			h.logger.Error("Failed to parse group header",
+				"header", constant.HeaderGroup,
+				"header_value", groupHeader,
+				"error", err,
+			)
+			c.JSON(http.StatusInternalServerError, gin.H{
+				"error":         "Exception thrown while generating token",
+				"exceptionCode": "AUTH_FAILURE",
+				"refId":         "003",
+			})
 			c.Abort()
 			return
 		}
 
-		if !userContext.IsAuthenticated {
-			log.Printf("Token is not authenticated for user: %s", userContext.Username)
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "not authenticated"})
-			c.Abort()
-			return
+		// Create UserContext from headers
+		userContext := &UserContext{
+			Username: username,
+			Groups:   groups,
 		}
+
+		h.logger.Debug("Extracted user info from headers",
+			"username", username,
+			"groups", groups,
+		)
 
 		c.Set("user", userContext)
 		c.Next()
 	}
 }
 
-// IssueToken handles POST /v1/tokens
-func (g *Handler) IssueToken(c *gin.Context) {
+// IssueToken handles POST /v1/tokens for issuing ephemeral tokens.
+func (h *Handler) IssueToken(c *gin.Context) {
 	var req Request
+	// BindJSON will still parse the request body, but we'll ignore the name field.
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		return
+		// Allow empty request body for default expiration
+		if !errors.Is(err, io.EOF) {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
 	}
 
 	if req.Expiration == nil {
@@ -76,17 +148,29 @@ func (g *Handler) IssueToken(c *gin.Context) {
 		return
 	}
 
-	user := userCtx.(*UserContext)
-
-	expiration := req.Expiration.Duration
-	if expiration.Abs() != expiration {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid expiration format, must be positive", "expiration": req.Expiration})
+	user, ok := userCtx.(*UserContext)
+	if !ok {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Invalid user context type"})
 		return
 	}
 
-	token, err := g.manager.GenerateToken(c.Request.Context(), user, expiration)
+	expiration := req.Expiration.Duration
+	if err := ValidateExpiration(expiration, 10*time.Minute); err != nil {
+		response := gin.H{"error": err.Error()}
+		if expiration > 0 && expiration < 10*time.Minute {
+			response["provided_expiration"] = expiration.String()
+		}
+		c.JSON(http.StatusBadRequest, response)
+		return
+	}
+
+	// For ephemeral tokens, we explicitly pass an empty name.
+	token, err := h.manager.GenerateToken(c.Request.Context(), user, expiration)
 	if err != nil {
-		log.Printf("Failed to generate token: %v", err)
+		h.logger.Error("Failed to generate token",
+			"error", err,
+			"expiration", expiration.String(),
+		)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to generate token"})
 		return
 	}
@@ -96,24 +180,4 @@ func (g *Handler) IssueToken(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusCreated, response)
-}
-
-// RevokeAllTokens handles DELETE /v1/tokens
-func (g *Handler) RevokeAllTokens(c *gin.Context) {
-	userCtx, exists := c.Get("user")
-	if !exists {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "User context not found"})
-		return
-	}
-
-	user := userCtx.(*UserContext)
-	err := g.manager.RevokeTokens(c.Request.Context(), user)
-	if err != nil {
-		log.Printf("Failed to revoke tokens for user %s: %v", user.Username, err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to revoke tokens"})
-		return
-	}
-
-	log.Printf("Successfully revoked all tokens for user %s", user.Username)
-	c.JSON(http.StatusNoContent, nil)
 }

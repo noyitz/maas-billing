@@ -2,21 +2,25 @@ package token
 
 import (
 	"context"
-	"crypto/sha1"
+	"crypto/rand"
+	"crypto/sha1" //nolint:gosec // SHA1 used for non-cryptographic hashing of usernames, not for security
 	"encoding/hex"
+	"errors"
 	"fmt"
-	"log"
 	"regexp"
+	"slices"
 	"strings"
 	"time"
 
-	"github.com/opendatahub-io/maas-billing/maas-api/internal/tier"
 	authv1 "k8s.io/api/authentication/v1"
 	corev1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/api/errors"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
 	corelistersv1 "k8s.io/client-go/listers/core/v1"
+
+	"github.com/opendatahub-io/models-as-a-service/maas-api/internal/logger"
+	"github.com/opendatahub-io/models-as-a-service/maas-api/internal/tier"
 )
 
 type Manager struct {
@@ -25,9 +29,11 @@ type Manager struct {
 	clientset            kubernetes.Interface
 	namespaceLister      corelistersv1.NamespaceLister
 	serviceAccountLister corelistersv1.ServiceAccountLister
+	logger               *logger.Logger
 }
 
 func NewManager(
+	log *logger.Logger,
 	tenantName string,
 	tierMapper *tier.Mapper,
 	clientset kubernetes.Interface,
@@ -40,51 +46,94 @@ func NewManager(
 		clientset:            clientset,
 		namespaceLister:      namespaceLister,
 		serviceAccountLister: serviceAccountLister,
+		logger:               log,
 	}
 }
 
-// GenerateToken creates a Service Account token in the namespace bound to the tier the user belongs to
+// GenerateToken creates a Service Account token in the namespace bound to the tier the user belongs to.
 func (m *Manager) GenerateToken(ctx context.Context, user *UserContext, expiration time.Duration) (*Token, error) {
+	log := m.logger.WithFields(
+		"expiration", expiration.String(),
+	)
 
-	userTier, err := m.tierMapper.GetTierForGroups(ctx, user.Groups...)
+	userTier, err := m.tierMapper.GetTierForGroups(user.Groups...)
 	if err != nil {
-		log.Printf("Failed to determine user tier for %s: %v", user.Username, err)
-		return nil, fmt.Errorf("failed to determine user tier for %s: %w", user.Username, err)
+		return nil, fmt.Errorf("failed to determine user tier for %s (groups: %v): %w", user.Username, user.Groups, err)
 	}
 
-	namespace, errNs := m.ensureTierNamespace(ctx, userTier)
+	log = log.WithFields("tier", userTier.Name)
+	log.Debug("Determined user tier")
+
+	namespace, errNs := m.ensureTierNamespace(ctx, userTier.Name)
 	if errNs != nil {
-		log.Printf("Failed to ensure tier namespace for user %s: %v", userTier, errNs)
-		return nil, fmt.Errorf("failed to ensure tier namespace for user %s: %w", userTier, errNs)
+		return nil, fmt.Errorf("failed to ensure tier namespace for tier %s: %w", userTier.Name, errNs)
 	}
 
-	saName, errSA := m.ensureServiceAccount(ctx, namespace, user.Username, userTier)
+	saName, errSA := m.ensureServiceAccount(ctx, namespace, user.Username, userTier.Name)
 	if errSA != nil {
-		log.Printf("Failed to ensure service account for user %s in namespace %s: %v", user.Username, namespace, errSA)
 		return nil, fmt.Errorf("failed to ensure service account for user %s in namespace %s: %w", user.Username, namespace, errSA)
 	}
 
 	token, errToken := m.createServiceAccountToken(ctx, namespace, saName, int(expiration.Seconds()))
 	if errToken != nil {
-		log.Printf("Failed to create token for service account %s in namespace %s: %v", saName, namespace, errToken)
 		return nil, fmt.Errorf("failed to create token for service account %s in namespace %s: %w", saName, namespace, errToken)
 	}
 
-	return &Token{
+	claims, err := extractClaims(token.Status.Token)
+	if err != nil {
+		return nil, fmt.Errorf("failed to extract claims from new token: %w", err)
+	}
+	jti, ok := claims["jti"].(string)
+	if !ok || jti == "" {
+		// Fallback: cluster does not emit a jti claim (ServiceAccountTokenJTI feature gate disabled or K8s < 1.29).
+		// Generate a stable identifier locally for API key metadata.
+		var errJTI error
+		jti, errJTI = generateLocalJTI()
+		if errJTI != nil {
+			return nil, fmt.Errorf("jti claim not found and fallback generation failed: %w", errJTI)
+		}
+	}
+
+	// Extract iat (issued at) claim from JWT - required for K8s SA tokens
+	iat, err := claims.GetIssuedAt()
+	if err != nil {
+		return nil, fmt.Errorf("failed to extract iat claim: %w", err)
+	}
+	if iat == nil {
+		return nil, errors.New("token is missing required 'iat' claim")
+	}
+	issuedAt := iat.Unix()
+
+	log.Debug("Successfully generated token",
+		"expires_at", token.Status.ExpirationTimestamp.Unix(),
+		"jti", jti,
+	)
+
+	result := &Token{
 		Token:      token.Status.Token,
 		Expiration: Duration{expiration},
 		ExpiresAt:  token.Status.ExpirationTimestamp.Unix(),
-	}, nil
-}
-
-// RevokeTokens revokes all tokens for a user by recreating their Service Account
-func (m *Manager) RevokeTokens(ctx context.Context, user *UserContext) error {
-	userTier, err := m.tierMapper.GetTierForGroups(ctx, user.Groups...)
-	if err != nil {
-		return fmt.Errorf("failed to determine user tier for %s: %w", user.Username, err)
+		IssuedAt:   issuedAt,
+		JTI:        jti,
 	}
 
-	namespace := m.tierMapper.Namespaces(ctx)[userTier]
+	return result, nil
+}
+
+// RevokeTokens revokes all tokens for a user by recreating their Service Account.
+func (m *Manager) RevokeTokens(ctx context.Context, user *UserContext) error {
+	log := m.logger
+
+	userTier, err := m.tierMapper.GetTierForGroups(user.Groups...)
+	if err != nil {
+		return fmt.Errorf("failed to determine user tier for %s (groups: %v): %w", user.Username, user.Groups, err)
+	}
+
+	log = log.WithFields("tier", userTier.Name)
+	namespace, errNS := m.tierMapper.Namespace(userTier.Name)
+	if errNS != nil {
+		return fmt.Errorf("failed to determine namespace for tier %s: %w", userTier.Name, errNS)
+	}
 
 	saName, errName := m.sanitizeServiceAccountName(user.Username)
 	if errName != nil {
@@ -92,8 +141,8 @@ func (m *Manager) RevokeTokens(ctx context.Context, user *UserContext) error {
 	}
 
 	_, err = m.serviceAccountLister.ServiceAccounts(namespace).Get(saName)
-	if errors.IsNotFound(err) {
-		log.Printf("Service account %s not found in namespace %s, nothing to revoke", saName, namespace)
+	if apierrors.IsNotFound(err) {
+		log.Debug("Service account not found, nothing to revoke")
 		return nil
 	}
 
@@ -106,20 +155,21 @@ func (m *Manager) RevokeTokens(ctx context.Context, user *UserContext) error {
 		return fmt.Errorf("failed to delete service account %s in namespace %s: %w", saName, namespace, err)
 	}
 
-	_, err = m.ensureServiceAccount(ctx, namespace, user.Username, userTier)
+	_, err = m.ensureServiceAccount(ctx, namespace, user.Username, userTier.Name)
 	if err != nil {
 		return fmt.Errorf("failed to recreate service account for user %s in namespace %s: %w", user.Username, namespace, err)
 	}
 
+	log.Debug("Successfully revoked all tokens for user")
 	return nil
 }
 
 // ensureTierNamespace creates a tier-based namespace if it doesn't exist.
 // It takes a tier name, formats it as {instance}-tier-{tier}, and returns the namespace name.
 func (m *Manager) ensureTierNamespace(ctx context.Context, tier string) (string, error) {
-	namespace := m.tierMapper.Namespaces(ctx)[tier]
-	if namespace == "" {
-		return "", fmt.Errorf("no namespace mapping found for tier %q", tier)
+	namespace, errNs := m.tierMapper.Namespace(tier)
+	if errNs != nil {
+		return "", fmt.Errorf("failed to determine namespace for tier %q: %w", tier, errNs)
 	}
 
 	_, err := m.namespaceLister.Get(namespace)
@@ -127,26 +177,28 @@ func (m *Manager) ensureTierNamespace(ctx context.Context, tier string) (string,
 		return namespace, nil
 	}
 
-	if !errors.IsNotFound(err) {
+	if !apierrors.IsNotFound(err) {
 		return "", fmt.Errorf("failed to check namespace %s: %w", namespace, err)
 	}
 
 	ns := &corev1.Namespace{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:   namespace,
-			Labels: commonLabels(m.tenantName, tier),
+			Labels: namespaceLabels(m.tenantName, tier),
 		},
 	}
 
 	_, err = m.clientset.CoreV1().Namespaces().Create(ctx, ns, metav1.CreateOptions{})
 	if err != nil {
-		if errors.IsAlreadyExists(err) {
+		if apierrors.IsAlreadyExists(err) {
 			return namespace, nil
 		}
 		return "", fmt.Errorf("failed to create namespace %s: %w", namespace, err)
 	}
 
-	log.Printf("Created namespace %s", namespace)
+	m.logger.Info("Created tier namespace",
+		"tier", tier,
+	)
 	return namespace, nil
 }
 
@@ -163,7 +215,7 @@ func (m *Manager) ensureServiceAccount(ctx context.Context, namespace, username,
 		return saName, nil
 	}
 
-	if !errors.IsNotFound(err) {
+	if !apierrors.IsNotFound(err) {
 		return "", fmt.Errorf("failed to check service account %s in namespace %s: %w", saName, namespace, err)
 	}
 
@@ -171,23 +223,25 @@ func (m *Manager) ensureServiceAccount(ctx context.Context, namespace, username,
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      saName,
 			Namespace: namespace,
-			Labels:    commonLabels(m.tenantName, userTier),
+			Labels:    serviceAccountLabels(m.tenantName, userTier),
 		},
 	}
 
 	_, err = m.clientset.CoreV1().ServiceAccounts(namespace).Create(ctx, sa, metav1.CreateOptions{})
 	if err != nil {
-		if errors.IsAlreadyExists(err) {
+		if apierrors.IsAlreadyExists(err) {
 			return saName, nil
 		}
 		return "", fmt.Errorf("failed to create service account %s in namespace %s: %w", saName, namespace, err)
 	}
 
-	log.Printf("Created service account %s in namespace %s", saName, namespace)
+	m.logger.Debug("Created service account",
+		"tier", userTier,
+	)
 	return saName, nil
 }
 
-// createServiceAccountToken creates a token for the service account using TokenRequest
+// createServiceAccountToken creates a token for the service account using TokenRequest.
 func (m *Manager) createServiceAccountToken(ctx context.Context, namespace, saName string, ttl int) (*authv1.TokenRequest, error) {
 	expirationSeconds := int64(ttl)
 
@@ -207,17 +261,17 @@ func (m *Manager) createServiceAccountToken(ctx context.Context, namespace, saNa
 	return result, nil
 }
 
-// deleteServiceAccount deletes a service account
+// deleteServiceAccount deletes a service account.
 func (m *Manager) deleteServiceAccount(ctx context.Context, namespace, saName string) error {
 	err := m.clientset.CoreV1().ServiceAccounts(namespace).Delete(ctx, saName, metav1.DeleteOptions{})
 	if err != nil {
-		if errors.IsNotFound(err) {
+		if apierrors.IsNotFound(err) {
 			return nil
 		}
 		return fmt.Errorf("failed to delete service account %s in namespace %s: %w", saName, namespace, err)
 	}
 
-	log.Printf("Deleted service account %s in namespace %s", saName, namespace)
+	m.logger.Debug("Deleted service account")
 	return nil
 }
 
@@ -242,7 +296,7 @@ func (m *Manager) sanitizeServiceAccountName(username string) (string, error) {
 	}
 
 	// Append a stable short hash to reduce collisions
-	sum := sha1.Sum([]byte(username))
+	sum := sha1.Sum([]byte(username)) //nolint:gosec // SHA1 used for non-cryptographic hashing, not for security
 	suffix := hex.EncodeToString(sum[:])[:8]
 
 	// Ensure total length <= 63 including hyphen and suffix
@@ -256,11 +310,42 @@ func (m *Manager) sanitizeServiceAccountName(username string) (string, error) {
 	return name + "-" + suffix, nil
 }
 
-func commonLabels(name string, t string) map[string]string {
-	return map[string]string{
-		"app.kubernetes.io/component":  "token-issuer",
-		"app.kubernetes.io/part-of":    "maas-api",
-		"maas.opendatahub.io/instance": name,
-		"maas.opendatahub.io/tier":     t,
+// generateLocalJTI generates a local JTI identifier when the cluster does not provide one.
+// This is needed for clusters running Kubernetes < 1.29 or when ServiceAccountTokenJTI feature gate is disabled.
+func generateLocalJTI() (string, error) {
+	const size = 16
+	b := make([]byte, size)
+	if _, err := rand.Read(b); err != nil {
+		return "", fmt.Errorf("failed to generate random bytes for JTI: %w", err)
 	}
+	return hex.EncodeToString(b), nil
+}
+
+// Audience returns the expected service account token audience for this MaaS instance.
+func (m *Manager) Audience() string {
+	return m.tenantName + "-sa"
+}
+
+// HasValidAudience checks if the given JWT token has the expected service account audience.
+// Returns false if the token cannot be parsed or doesn't contain the expected audience.
+func (m *Manager) HasValidAudience(tokenString string) bool {
+	claims, err := extractClaims(tokenString)
+	if err != nil {
+		m.logger.Warn("Failed to extract claims from token", "error", err)
+		return false
+	}
+
+	aud, err := claims.GetAudience()
+	if err != nil {
+		m.logger.Warn("Failed to get audience from token claims", "error", err)
+		return false
+	}
+
+	expected := m.Audience()
+	if slices.Contains(aud, expected) {
+		return true
+	}
+
+	m.logger.Debug("Token audience mismatch", "expected", expected, "actual", aud)
+	return false
 }

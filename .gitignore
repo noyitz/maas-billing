@@ -17,6 +17,8 @@ apps/backend/package-lock.json
 # Go test coverage files
 coverage.out
 coverage.html
+
+# Go binaries
 bin/
 
 # Python
@@ -38,3 +40,8 @@ htmlcov/
 apps/frontend/.env.local
 apps/backend/.env
 CLAUDE.md
+
+# Docs build and site directories
+docs/build/
+docs/site/
+
