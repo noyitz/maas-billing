@@ -41,11 +41,11 @@ graph TB
 
 ### Benefits
 
-. **Flexibility**: Different models can have different security and access requirements
-. **Progressive Adoption**: Teams can adopt MaaS features incrementally
-. **Production Control**: Production models get full policy enforcement if needed
-. **Multi-Tenancy**: Different teams can use different gateways in the same cluster
-. **Blast Radius Containment**: Issues with one gateway don't affect the other
+- **Flexibility**: Different models can have different security and access requirements
+- **Progressive Adoption**: Teams can adopt MaaS features incrementally
+- **Production Control**: Production models get full policy enforcement if needed
+- **Multi-Tenancy**: Different teams can use different gateways in the same cluster
+- **Blast Radius Containment**: Issues with one gateway don't affect the other
 
 ## Prerequisites
 
@@ -270,9 +270,13 @@ curl -sSk -H "Authorization: Bearer $TOKEN" \
 - Check that RBAC was properly created for your tier
 - Verify the service account in your token has the correct tier namespace
 
+!!!Warning "Removing Models from Tiers During Active Usage"
+    When updating the `alpha.maas.opendatahub.io/tiers` annotation to remove a tier, be aware that active requests may be affected. See [Model Tier Access Behavior](./model-access-behavior.md#model-tier-access-changes-during-active-usage) for details on expected behaviors and recommended practices.
+
 ## References
 
 - [Tier Management](./tier-overview.md) - Learn about configuring tier access
 - [Tier Configuration](./tier-configuration.md) - Detailed tier setup instructions
+- [Model Tier Access Behavior](./model-access-behavior.md) - Expected behaviors and operational considerations
 - [Architecture Overview](../architecture.md) - Understand the overall MaaS architecture
 - [KServe LLMInferenceService Documentation](https://kserve.github.io/website/) - Official KServe documentation

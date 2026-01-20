@@ -26,6 +26,8 @@
 #   SKIP_SMOKE      - Skip smoke tests (default: false)
 #   SKIP_TOKEN_VERIFICATION - Skip token metadata verification (default: false)
 #   MAAS_API_IMAGE - Custom image for MaaS API (e.g., quay.io/opendatahub/maas-api:pr-232)
+#   INSECURE_HTTP  - Deploy without TLS and use HTTP for tests (default: false)
+#                    Affects both deploy-openshift.sh and smoke.sh
 # =============================================================================
 
 set -euo pipefail
@@ -42,7 +44,7 @@ find_project_root() {
   if [[ -e "$dir/$marker" ]]; then
     printf '%s\n' "$dir"
   else
-    echo "Error: couldn’t find '$marker' in any parent of '$start_dir'" >&2
+    echo "Error: couldn't find '$marker' in any parent of '$start_dir'" >&2
     return 1
   fi
 }
@@ -54,6 +56,7 @@ PROJECT_ROOT="$(find_project_root)"
 SKIP_VALIDATION=${SKIP_VALIDATION:-false}
 SKIP_SMOKE=${SKIP_SMOKE:-false}
 SKIP_TOKEN_VERIFICATION=${SKIP_TOKEN_VERIFICATION:-false}
+INSECURE_HTTP=${INSECURE_HTTP:-false}
 
 print_header() {
     echo ""
@@ -88,13 +91,6 @@ check_prerequisites() {
 }
 
 deploy_maas_platform() {
-    # Set custom MaaS API image
-    : "${MAAS_API_IMAGE:=quay.io/opendatahub/maas-api:latest}"
-    echo "Using custom MaaS API image: ${MAAS_API_IMAGE}"
-    pushd "$PROJECT_ROOT/deployment/base/maas-api" > /dev/null
-    kustomize edit set image maas-api="${MAAS_API_IMAGE}"
-    popd > /dev/null
-
     echo "Deploying MaaS platform on OpenShift..."
     if ! "$PROJECT_ROOT/scripts/deploy-openshift.sh"; then
         echo "❌ ERROR: MaaS platform deployment failed"
@@ -112,7 +108,14 @@ deploy_models() {
     echo "✅ Simulator model deployed"
     
     echo "Waiting for model to be ready..."
-    oc wait llminferenceservice/facebook-opt-125m-simulated -n llm --for=condition=Ready --timeout=300s
+    if ! oc wait llminferenceservice/facebook-opt-125m-simulated -n llm --for=condition=Ready --timeout=300s; then
+        echo "❌ ERROR: Timed out waiting for model to be ready"
+        echo "=== LLMInferenceService YAML dump ==="
+        oc get llminferenceservice/facebook-opt-125m-simulated -n llm -o yaml || true
+        echo "=== Events in llm namespace ==="
+        oc get events -n llm --sort-by='.lastTimestamp' || true
+        exit 1
+    fi
     echo "✅ Simulator Model deployed"
 }
 
@@ -140,12 +143,13 @@ setup_vars_for_tests() {
     fi
     echo "K8S_CLUSTER_URL: ${K8S_CLUSTER_URL}"
 
-    export CLUSTER_DOMAIN="$(oc get ingresses.config.openshift.io cluster -o jsonpath='{.spec.domain}')"
-    export HOST="maas.${CLUSTER_DOMAIN}"
-    export MAAS_API_BASE_URL="http://${HOST}/maas-api"
-    echo "CLUSTER_DOMAIN: ${CLUSTER_DOMAIN}"
-    echo "HOST: ${HOST}"
-    echo "MAAS_API_BASE_URL: ${MAAS_API_BASE_URL}"
+    # Export INSECURE_HTTP for smoke.sh (it handles MAAS_API_BASE_URL detection)
+    # This aligns with deploy-openshift.sh which also respects INSECURE_HTTP
+    export INSECURE_HTTP
+    if [ "$INSECURE_HTTP" = "true" ]; then
+        echo "⚠️  INSECURE_HTTP=true - will use HTTP for tests"
+    fi
+    
     echo "✅ Variables for tests setup completed"
 }
 
@@ -230,6 +234,7 @@ print_header "Validating Deployment and Token Metadata Logic"
 validate_deployment
 run_token_verification
 
+sleep 120       # Wait for the rate limit to reset
 run_smoke_tests
 
 # Test edit user  

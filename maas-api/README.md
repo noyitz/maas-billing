@@ -101,8 +101,7 @@ Patch `AuthPolicy` with the correct audience for Openshift Identities:
 ```shell
 AUD="$(kubectl create token default --duration=10m \
   | cut -d. -f2 \
-  | base64 -d 2>/dev/null \
-  | jq -r '.aud[0]')"
+  | jq -Rr '@base64d | fromjson | .aud[0]' 2>/dev/null)"
 
 echo "Patching AuthPolicy with audience: $AUD"
 
@@ -228,7 +227,7 @@ maas-api supports three storage modes, controlled by the `--storage` flag:
 # In-memory (default - no configuration needed)
 
 # Disk storage (persistent, single replica)
-kustomize build deployment/overlays/sqlite-pvc | kubectl apply -f -
+kustomize build deployment/overlays/tls-backend-disk | kubectl apply -f -
 
 # External database - see docs/samples/database/external for configuration
 ```
