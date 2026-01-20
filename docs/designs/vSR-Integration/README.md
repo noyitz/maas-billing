@@ -346,17 +346,17 @@ Based on the analysis of both options, we recommend the **Hybrid Authorization-F
 
 The solution implements a **multi-phase hybrid flow** that maximizes security, performance, and intelligent routing:
 
-**🔒 Phase 1: vSR Access Authorization**  
-Kuadrant → Authorino authentication and vSR access control
+**🔒 Phase 1: MaaS Authentication & Authorization**  
+MaaS → Kuadrant → Authorino authentication and semantic routing access control
 
 **🧠 Phase 2: vSR Intelligence**  
 Semantic caching, PII detection, jailbreak prevention, and intelligent model routing
 
 **🔐 Phase 3: Model-Specific Authorization**  
-Kuadrant → Authorino authorization for the selected model
+MaaS → Kuadrant → Authorino authorization for the selected model
 
 **⚖️ Phase 4: Rate Limiting & Execution**  
-Kuadrant → Limitador rate limiting (requests + tokens) then model execution
+MaaS → Kuadrant → Limitador rate limiting (requests + tokens) then model execution
 
 **🔄 Phase 4.5: Adaptive Fallback Logic** *(Conditional - Only if Phase 4 fails)*  
 When rate limits are exceeded, request fallback model from vSR and retry authorization + rate limiting
@@ -372,7 +372,7 @@ The integration uses **Envoy External Processing (ExtProc)** to seamlessly combi
 
 ### 4.2 Phase-by-Phase Implementation
 
-#### Phase 1: vSR Access Authorization
+#### Phase 1: MaaS Authentication & Authorization
 
 ```mermaid
 sequenceDiagram
