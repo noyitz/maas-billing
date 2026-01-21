@@ -276,17 +276,17 @@ sequenceDiagram
     Authorino->>Cache: Check cached model permissions for user
     
     alt Cache Hit
-        Cache-->>Authorino: Cached accessible/blocked models list
+        Cache-->>Authorino: Cached accessible models list
     else Cache Miss
         Authorino->>ModelRegistry: Get all registered models
         ModelRegistry-->>Authorino: [gpt-4, llama3-70b, llama3-8b, granite-7b]
         Authorino->>Authorino: Bulk SubjectAccessReview for all models
         Authorino->>Cache: Store results (300s TTL)
-        Cache-->>Authorino: Accessible: [llama3-70b, llama3-8b]<br/>Blocked: [gpt-4, granite-7b]
+        Cache-->>Authorino: Accessible: [llama3-70b, llama3-8b]
     end
     
     Authorino-->>Kuadrant: Auth Success + Model Constraints
-    Kuadrant-->>Gateway: Policy Decision (Allow) + Headers:<br/>X-User-ID: user-123<br/>X-Tier: premium<br/>X-Accessible-Models: llama3-70b,llama3-8b<br/>X-Blocked-Models: gpt-4,granite-7b
+    Kuadrant-->>Gateway: Policy Decision (Allow) + Headers:<br/>X-User-ID: user-123<br/>X-Tier: premium<br/>X-Accessible-Models: llama3-70b,llama3-8b
 ```
 
 **Benefits**: 
@@ -304,7 +304,7 @@ sequenceDiagram
     participant Cache as Semantic Cache
     participant Client
     
-    Gateway->>vSR: ExtProc Call with Request Body + Model Constraints<br/>X-User-ID: user-123<br/>X-Tier: premium<br/>X-Accessible-Models: llama3-70b,llama3-8b<br/>X-Blocked-Models: gpt-4,granite-7b
+    Gateway->>vSR: ExtProc Call with Request Body + Model Constraints<br/>X-User-ID: user-123<br/>X-Tier: premium<br/>X-Accessible-Models: llama3-70b,llama3-8b
     
     vSR->>Cache: Check semantic cache (namespaced by X-User-ID)
     
@@ -432,7 +432,6 @@ X-User-ID: math-user-123                    # ✅ User identification
 X-Tier: premium                             # ✅ User subscription tier
 X-Groups: "tier-premium-users,specialists"  # ✅ Kubernetes groups for RBAC
 X-Accessible-Models: llama3-70b,llama3-8b  # 🆕 Pre-authorized models only
-X-Blocked-Models: gpt-4,granite-7b         # 🆕 Models user cannot access
 
 # Phase 2: After vSR Constrained Semantic Routing
 POST /models/llama3-70b/chat/completions    # 🆕 Path rewritten for model routing
@@ -481,7 +480,7 @@ The implementation leverages extensive existing production-ready infrastructure:
 - ✅ **Context Injection**: `X-User-ID`, `X-Tier`, `X-Groups` injected for downstream consumption
 - 🆕 **Bulk Authorization**: Bulk SubjectAccessReview for all registered models in Phase 1
 - 🆕 **Authorization Caching Enhancement**: Extend existing cache for bulk authorization results with 300s TTL
-- 🆕 **Model Constraints Injection**: `X-Accessible-Models`, `X-Blocked-Models` headers
+- 🆕 **Model Constraints Injection**: `X-Accessible-Models` headers
 - ✅ **Limitador Integration**: Enforce limits based on `X-MaaS-Model-Selected` (from vSR) and `X-User-ID`
 
 #### MaaS (Models-as-a-Service) & Gateway
@@ -505,7 +504,7 @@ The implementation leverages extensive existing production-ready infrastructure:
 - 🆕 **Reasoning Plugin Module**: New plugin for dynamic reasoning mode control
 - 🆕 **External Integration Layer**: Standardized interfaces for llm-d, Llama Stack, MCP Gateway
 - 🆕 **Multi-Tenant Cache Enhancement**: User-namespaced semantic cache to prevent data leakage
-- 🆕 **Constrained Model Selection**: Parse `X-Accessible-Models` and `X-Blocked-Models` for selection logic
+- 🆕 **Constrained Model Selection**: Parse `X-Accessible-Models` for selection logic
 
 ### 3.3 Migration Strategy
 
