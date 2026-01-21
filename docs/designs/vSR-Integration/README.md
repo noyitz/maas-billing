@@ -323,7 +323,7 @@ sequenceDiagram
             vSR->>vSR: 4. User-Aware Model Selection:<br/>- Parse accessible models: [llama3-70b, llama3-8b]<br/>- Apply tier-based preferences (premium tier)<br/>- Select optimal model from ACCESSIBLE set only
             vSR->>vSR: 5. Optional: Apply user-level routing policies based on X-User-ID
             vSR->>Cache: Store classification result (namespaced by user)
-            vSR-->>Gateway: Header Modifications + Redacted Content:<br/>Host: llama3-70b-service<br/>X-MaaS-Model-Selected: llama3-70b<br/>X-Category: mathematics<br/>X-Confidence: 0.94<br/>X-VSR-Classification-Time: 45ms<br/>X-VSR-Reasoning-Mode: enabled
+            vSR-->>Gateway: Header Modifications + Redacted Content:<br/>Host: llama3-70b-service<br/>x-vsr-selected-model: llama3-70b<br/>x-vsr-selected-category: mathematics<br/>x-vsr-selected-reasoning: on
         end
     end
 ```
@@ -334,7 +334,7 @@ sequenceDiagram
 - 🛡️ **Security Guard**: Jailbreak detection blocks malicious prompts
 - ⚡ **Performance**: User-namespaced semantic caching prevents data leakage
 - 👤 **User-Level Intelligence**: X-User-ID enables personalized routing policies
-- 📊 **Enhanced Headers**: Comprehensive vSR troubleshooting headers included
+- 📊 **vSR Decision Headers**: Model selection, category, and reasoning mode tracking
 - 🚫 **Authorization Failure Elimination**: Selection constrained to accessible models only
 
 #### Phase 3: Streamlined Rate Limiting & Model Execution
@@ -438,19 +438,18 @@ POST /models/llama3-70b/chat/completions    # 🆕 Path rewritten for model rout
 Authorization: Bearer sa-token-xyz
 X-User-ID: math-user-123                    # ✅ Passed through from Phase 1
 X-Tier: premium                             # ✅ Passed through from Phase 1
-X-MaaS-Model-Selected: llama3-70b          # 🆕 For billing tracking
-X-Category: mathematics                     # 🆕 Semantic classification
-X-Confidence: 0.94                         # 🆕 vSR classification confidence
-X-VSR-Classification-Time: 45ms            # 🆕 vSR performance metrics
-X-VSR-Reasoning-Mode: enabled              # 🆕 Reasoning mode status
+x-vsr-selected-model: llama3-70b            # ✅ vSR model selection (for billing)
+x-vsr-selected-category: mathematics        # ✅ vSR semantic classification
+x-vsr-selected-reasoning: on                # ✅ vSR reasoning mode status
 
 # Phase 3: Successful Model Execution (Rate Limits Passed)
 HTTP/1.1 200 OK
 Content-Type: application/json
-X-Model-Executed: llama3-70b               # 🆕 Actually executed model
+x-vsr-selected-model: llama3-70b           # ✅ Actually executed model
+x-vsr-selected-category: mathematics       # ✅ vSR classification result
+x-vsr-selected-reasoning: on               # ✅ Reasoning mode applied
 X-Authorization-Cached: true               # 🆕 Pre-authorization used
 X-Request-Duration: 2.5s
-X-VSR-Reasoning-Mode: enabled              # 🆕 Reasoning mode applied
 {"choices": [{"message": {"content": "The derivative of x² is 2x..."}}]}
 ```
 
@@ -481,7 +480,7 @@ The implementation leverages extensive existing production-ready infrastructure:
 - 🆕 **Bulk Authorization**: Bulk SubjectAccessReview for all registered models in Phase 1
 - 🆕 **Authorization Caching Enhancement**: Extend existing cache for bulk authorization results with 300s TTL
 - 🆕 **Model Constraints Injection**: `X-Accessible-Models` headers
-- ✅ **Limitador Integration**: Enforce limits based on `X-MaaS-Model-Selected` (from vSR) and `X-User-ID`
+- ✅ **Limitador Integration**: Enforce limits based on `x-vsr-selected-model` (from vSR) and `X-User-ID`
 
 #### MaaS (Models-as-a-Service) & Gateway
 - ✅ **MaaS API**: Production-ready Go API with token management and tier resolution
@@ -492,12 +491,14 @@ The implementation leverages extensive existing production-ready infrastructure:
 - 🆕 **Bulk Authorization API**: New endpoint for bulk model authorization checks
 - 🆕 **Intelligent Fallback Handler**: Envoy filter to handle constrained fallback logic
 - 🆕 **Enhanced Billing Ingestion**: Update collector to handle fallback and reasoning mode billing
+- 🆕 **Header Translation**: Map vSR headers (`x-vsr-selected-model`) to billing tracking headers
 
 #### vSR (vLLM Semantic Router) - Enhanced Modular Architecture
 - ✅ **ExtProc Service**: Existing Envoy External Processor implementation (port 50051)
 - ✅ **vSR CLI**: Production-ready deployment and management CLI
 - ✅ **Kubernetes Infrastructure**: Complete deployment manifests and operational tooling
 - ✅ **Configuration System**: YAML-based configuration with validation
+- ✅ **Decision Headers**: Existing `x-vsr-selected-model`, `x-vsr-selected-category`, `x-vsr-selected-reasoning`
 - 🆕 **Security Plugin Module**: Enhance existing PII detection and jailbreak prevention
 - 🆕 **Semantic Plugin Module**: Enhance existing classification with model constraint parsing  
 - 🆕 **Orchestration Plugin Module**: New optional plugin for tool selection and context management
