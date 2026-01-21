@@ -9,14 +9,15 @@
 
 This design proposal presents the integration architecture for vLLM Semantic Router (vSR) with the Models-as-a-Service (MaaS) platform. The integration enhances the MaaS platform with intelligent semantic routing capabilities while maintaining enterprise-grade security, rate limiting, and billing features.
 
-The proposal recommends an **Enhanced Hybrid Authorization-First Architecture** that combines MaaS's proven security and policy enforcement with vSR's intelligent routing capabilities. This architecture eliminates authorization bottlenecks through pre-authorization with model constraints, enabling seamless user experiences while maintaining strict access controls.
+The proposal recommends a **Centralized MaaS API Architecture** that integrates vSR's semantic classification capabilities directly into the MaaS API service. This approach eliminates gateway complexity and provides a clean, unified interface for intelligent model selection while maintaining enterprise-grade security and policy enforcement.
 
 **Key Benefits:**
+- **Simplified Architecture**: Single integration point eliminates gateway complexity and ExtProc overhead
 - **Intelligent Routing**: Semantic classification directs requests to optimal models based on content analysis
-- **Elimination of Authorization Failures**: Pre-authorization ensures vSR selects only from user-accessible models  
+- **Zero Authorization Failures**: Pre-authorization ensures vSR selects only from user-accessible models
 - **Enterprise Security**: PII detection, jailbreak prevention, and comprehensive audit trails
-- **Modular Composition**: Plugin-based architecture supports future ecosystem integration
-- **Operational Excellence**: Leverages existing production-ready infrastructure from both platforms
+- **Service-to-Service Integration**: Standard HTTP APIs between MaaS and vSR services
+- **Unified Control**: All routing logic centralized in MaaS API for operational simplicity
 
 ## 1. Architecture Overview
 
@@ -225,201 +226,191 @@ vsr_composition:
 - ✅ **Ecosystem Integration**: Clean interfaces for llm-d, Llama Stack, MCP Gateway
 - ✅ **Performance Optimization**: Avoid unnecessary processing overhead
 
-## 2. Enhanced Hybrid Architecture
+## 2. Centralized MaaS API Architecture
 
-### 2.1 Integration Flow Overview
+### 2.1 Architecture Overview
 
-The integration implements a **multi-phase enhanced flow** that maximizes security, eliminates authorization bottlenecks, and enables intelligent routing:
+The integration implements a **centralized approach** where the MaaS API service directly integrates with vSR's classification capabilities. This eliminates gateway complexity and provides a unified, maintainable architecture:
 
 ```mermaid
 graph TB
-    subgraph "Phase 1: Enhanced Pre-Authorization"
-        P1[MaaS Authentication<br/>+ Bulk Model Authorization<br/>+ Model Constraints Generation]
+    subgraph "Client Layer"
+        Client[Client Applications]
     end
     
-    subgraph "Phase 2: Constrained Semantic Routing"
-        P2[vSR Intelligence<br/>+ Model Constraint Parsing<br/>+ Optimal Model Selection]
+    subgraph "Gateway Layer" 
+        Gateway[maas-default-gateway<br/>Route to MaaS API]
+        Kuadrant[Kuadrant<br/>Auth & Rate Limiting Only]
     end
     
-    subgraph "Phase 3: Streamlined Execution"
-        P3[Rate Limiting<br/>+ Model Execution<br/>No Auth Check Needed]
+    subgraph "MaaS API Service"
+        MaaSAPI[MaaS API Server<br/>/v1/chat/completions endpoint]
+        AuthCheck[Authorization Module]
+        VSRClient[vSR HTTP Client]
+        ModelRouter[Model Selection Logic]
     end
     
-    subgraph "Phase 4: Intelligent Fallback (Conditional)"
-        P4[Alternative Model Selection<br/>+ Retry Logic<br/>Within Accessible Models]
+    subgraph "vSR Service"
+        VSRService[vSR Classification API<br/>/api/v1/classify/intent<br/>/api/v1/classify/pii<br/>/api/v1/classify/security]
     end
     
-    P1 --> P2
-    P2 --> P3
-    P3 --> P4
+    subgraph "Target Models"
+        Model1[Math Specialist Model]
+        Model2[Code Generation Model] 
+        Model3[General Purpose Model]
+    end
+    
+    Client --> Gateway
+    Gateway --> Kuadrant
+    Kuadrant --> MaaSAPI
+    
+    MaaSAPI --> AuthCheck
+    MaaSAPI --> VSRClient
+    VSRClient --> VSRService
+    MaaSAPI --> ModelRouter
+    
+    ModelRouter --> Model1
+    ModelRouter --> Model2
+    ModelRouter --> Model3
 ```
 
-#### Phase 1: Enhanced Pre-Authorization & Model Constraint Generation
+**Key Benefits:**
+- **Single Integration Point**: Only MaaS API needs to integrate with vSR 
+- **Standard HTTP APIs**: Service-to-service communication via REST endpoints
+- **No Gateway Complexity**: Eliminates Envoy ExtProc and policy coordination
+- **Unified Logic**: All routing, authorization, and model selection in one service
+- **Operational Simplicity**: Standard Kubernetes service-to-service patterns
+
+### 2.2 Request Flow Sequence
 
 ```mermaid
 sequenceDiagram
     participant Client
     participant Gateway as maas-default-gateway
     participant Kuadrant
-    participant Authorino
     participant MaaSAPI as MaaS API
-    participant ModelRegistry as Model Registry
-    participant Cache as Authorization Cache
+    participant vSR as vSR Classification API
+    participant Model as Target Model
     
-    Client->>Gateway: POST /chat/completions + Service Account Token
-    Gateway->>Kuadrant: Apply Policies
-    Kuadrant->>Authorino: Validate Service Account Token
-    Authorino->>MaaSAPI: Tier lookup + User Identity
-    MaaSAPI-->>Authorino: User tier (premium) + groups
+    Client->>Gateway: POST /v1/chat/completions + Service Account Token
+    Gateway->>Kuadrant: Route + Apply Auth Policy
+    Kuadrant->>Kuadrant: Validate Service Account Token
+    Kuadrant-->>Gateway: Auth Success + User Context
+    Gateway->>MaaSAPI: Forward Request + User Headers
     
-    Note over Authorino,Cache: Bulk Model Authorization Check
-    Authorino->>Cache: Check cached model permissions for user
+    Note over MaaSAPI: Centralized Processing
+    MaaSAPI->>MaaSAPI: 1. Extract user context & get accessible models
+    MaaSAPI->>vSR: POST /api/v1/classify/intent<br/>{"text": "Find derivative of f(x)=x²+3x-5"}
+    vSR->>vSR: ModernBERT Classification
+    vSR-->>MaaSAPI: {"category": "mathematics", "confidence": 0.95}
     
-    alt Cache Hit
-        Cache-->>Authorino: Cached accessible models list
-    else Cache Miss
-        Authorino->>ModelRegistry: Get all registered models
-        ModelRegistry-->>Authorino: [gpt-4, llama3-70b, llama3-8b, granite-7b]
-        Authorino->>Authorino: Bulk SubjectAccessReview for all models
-        Authorino->>Cache: Store results (300s TTL)
-        Cache-->>Authorino: Accessible: [llama3-70b, llama3-8b]
-    end
+    MaaSAPI->>vSR: POST /api/v1/classify/pii<br/>{"text": "Find derivative..."}  
+    vSR-->>MaaSAPI: {"contains_pii": false, "safe_text": "..."}
     
-    Authorino-->>Kuadrant: Auth Success + Model Constraints
-    Kuadrant-->>Gateway: Policy Decision (Allow) + Headers:<br/>X-User-ID: user-123<br/>X-Tier: premium<br/>X-Accessible-Models: llama3-70b,llama3-8b
+    MaaSAPI->>vSR: POST /api/v1/classify/security<br/>{"text": "Find derivative..."}
+    vSR-->>MaaSAPI: {"is_jailbreak": false, "threat_level": "safe"}
+    
+    MaaSAPI->>MaaSAPI: 2. Model Selection Logic:<br/>- Category: mathematics<br/>- Accessible: [llama3-70b, llama3-8b]<br/>- Select: llama3-70b (math specialist)
+    
+    MaaSAPI->>Model: POST /v1/chat/completions<br/>Route to llama3-70b-service
+    Model-->>MaaSAPI: Response + Generated Content
+    
+    MaaSAPI->>MaaSAPI: 3. Add routing metadata to response
+    MaaSAPI-->>Gateway: Response + Headers:<br/>x-vsr-selected-model: llama3-70b<br/>x-vsr-selected-category: mathematics
+    Gateway-->>Client: Final Response
 ```
 
-**Benefits**: 
-- ✅ **Eliminates Authorization Failures**: vSR only selects from pre-authorized models
-- ✅ **Bulk Authorization Efficiency**: Single authorization check for all models  
-- ✅ **Intelligent Caching**: 300s TTL prevents repeated authorization overhead
-- ✅ **Standard MaaS Flow**: Maintains existing security and authentication patterns
+**Benefits:**
+- ✅ **Simplified Integration**: Single service-to-service HTTP calls between MaaS and vSR
+- ✅ **No Gateway Complexity**: Eliminates ExtProc coordination and policy interdependencies  
+- ✅ **Standard Patterns**: Uses familiar Kubernetes service mesh communication
+- ✅ **Unified Control**: All routing logic centralized in MaaS API for operational simplicity
 
-#### Phase 2: Constrained Semantic Routing with User-Level Intelligence
+### 2.3 MaaS API Integration Details
 
-```mermaid
-sequenceDiagram
-    participant Gateway as maas-default-gateway
-    participant vSR as vSR ExtProc Service
-    participant Cache as Semantic Cache
-    participant Client
+#### New /v1/chat/completions Endpoint in MaaS API
+
+```go
+// Add to maas-api service
+type ChatCompletionsHandler struct {
+    modelManager    *models.Manager
+    vsrClient      *vsr.ClassificationClient  
+    authService    *auth.Service
+}
+
+func (h *ChatCompletionsHandler) HandleChatCompletions(w http.ResponseWriter, r *http.Request) {
+    // 1. Parse request and extract user context
+    userContext := h.authService.GetUserContext(r)
+    accessibleModels := h.modelManager.ListAvailableLLMs(r.Context(), userContext.Token)
     
-    Gateway->>vSR: ExtProc Call with Request Body + Model Constraints<br/>X-User-ID: user-123<br/>X-Tier: premium<br/>X-Accessible-Models: llama3-70b,llama3-8b
+    // 2. Classify request content using vSR HTTP APIs
+    classificationResult := h.vsrClient.ClassifyRequest(r.Context(), chatRequest)
     
-    vSR->>Cache: Check semantic cache (namespaced by X-User-ID)
+    // 3. Select optimal model from accessible models based on classification  
+    selectedModel := h.selectOptimalModel(classificationResult, accessibleModels)
     
-    alt Cache Hit - Performance Boost
-        Cache-->>vSR: Return cached response/routing decision
-        vSR-->>Gateway: Cached routing decision
-    else Cache Miss - Full Processing
-        vSR->>vSR: 1. PII Detection & Redaction (Privacy Protection)
-        vSR->>vSR: 2. Jailbreak Detection (Security Guard)
-        
-        alt Jailbreak Detected
-            vSR-->>Gateway: HTTP 403 Forbidden (IMMEDIATE TERMINATION)
-            Gateway-->>Client: 403 Forbidden - Security Violation
-        else Request is Safe (PII Redacted)
-            vSR->>vSR: 3. Semantic Classification (ModernBERT)
-            vSR->>vSR: 4. User-Aware Model Selection:<br/>- Parse accessible models: [llama3-70b, llama3-8b]<br/>- Apply tier-based preferences (premium tier)<br/>- Select optimal model from ACCESSIBLE set only
-            vSR->>vSR: 5. Optional: Apply user-level routing policies based on X-User-ID
-            vSR->>Cache: Store classification result (namespaced by user)
-            vSR-->>Gateway: Header Modifications + Redacted Content:<br/>Host: llama3-70b-service<br/>x-vsr-selected-model: llama3-70b<br/>x-vsr-selected-category: mathematics<br/>x-vsr-selected-reasoning: on
-        end
-    end
+    // 4. Route to selected model and return response with metadata
+    response := h.routeToModel(r.Context(), selectedModel, chatRequest)
+    h.addRoutingMetadata(response, classificationResult, selectedModel)
+    
+    json.NewEncoder(w).Encode(response)
+}
 ```
 
-**Benefits**: 
-- 🧠 **Constrained Intelligent Routing**: ModernBERT classification with pre-authorized model selection
-- 🔒 **Privacy Protection**: PII detection and redaction protects sensitive data  
-- 🛡️ **Security Guard**: Jailbreak detection blocks malicious prompts
-- ⚡ **Performance**: User-namespaced semantic caching prevents data leakage
-- 👤 **User-Level Intelligence**: X-User-ID enables personalized routing policies
-- 📊 **vSR Decision Headers**: Model selection, category, and reasoning mode tracking
-- 🚫 **Authorization Failure Elimination**: Selection constrained to accessible models only
+#### vSR HTTP Client Integration
 
-#### Phase 3: Streamlined Rate Limiting & Model Execution
+```go
+type ClassificationClient struct {
+    baseURL    string
+    httpClient *http.Client
+}
 
-```mermaid
-sequenceDiagram
-    participant Gateway as maas-default-gateway
-    participant Kuadrant
-    participant Limitador
-    participant RateLimitPolicy
-    participant TokenRateLimitPolicy
-    participant KServe as Selected Model
-    participant Client
+type ClassificationResult struct {
+    Category     string  `json:"category"`
+    Confidence   float64 `json:"confidence"`  
+    ContainsPII  bool    `json:"contains_pii"`
+    IsJailbreak  bool    `json:"is_jailbreak"`
+    SafeText     string  `json:"safe_text"`
+}
+
+func (c *ClassificationClient) ClassifyRequest(ctx context.Context, request ChatRequest) (*ClassificationResult, error) {
+    // Use vSR's existing HTTP endpoints
+    intentResp := c.classifyIntent(ctx, request.Messages[0].Content)
+    piiResp := c.classifyPII(ctx, request.Messages[0].Content)  
+    securityResp := c.classifySecurity(ctx, request.Messages[0].Content)
     
-    Note over Gateway,Client: After vSR model selection (llama3-70b) - Authorization ALREADY VERIFIED
-    Gateway->>Kuadrant: Apply Rate Limiting Policies (Skip Authorization)
-    Kuadrant->>Limitador: Check Rate Limits for Selected Model
-    Limitador->>RateLimitPolicy: Apply Request Rate Limits (tier: premium, model: llama3-70b)
-    Limitador->>TokenRateLimitPolicy: Apply Token Rate Limits (tier: premium)
-    RateLimitPolicy-->>Limitador: Request Rate Status
-    TokenRateLimitPolicy-->>Limitador: Token Rate Status
-    
-    alt Rate Limits OK
-        Limitador-->>Kuadrant: Rate Limits Passed
-        Kuadrant-->>Gateway: Policy Decision (Allow)
-        Gateway->>KServe: Forward to Pre-Authorized Model
-        KServe-->>Client: Model Response
-    else Rate Limit Exceeded
-        Limitador-->>Kuadrant: Rate Limit Exceeded
-        Kuadrant-->>Gateway: Policy Decision (Deny)
-        Note over Gateway: Proceed to Phase 4 (Intelligent Fallback)
-    end
+    return &ClassificationResult{
+        Category:    intentResp.Category,
+        Confidence:  intentResp.Confidence,
+        ContainsPII: piiResp.ContainsPII,
+        IsJailbreak: securityResp.IsJailbreak,
+        SafeText:    piiResp.SafeText,
+    }, nil
+}
 ```
 
-**Benefits**: 
-- ⚡ **Streamlined Flow**: No authorization check needed (pre-verified in Phase 1)
-- 🎯 **Model-Specific Rate Limits**: Applies limits based on selected model cost/complexity
-- 🔐 **Maintained Security**: Authorization already verified, no security compromise
-- 📊 **Intelligent Metrics**: Rate limiting aware of actual model being used
+### 2.4 Response Headers and Metadata
 
-#### Phase 4: Intelligent Fallback Logic (Conditional)
+The centralized approach maintains the same header interface for client compatibility:
 
-```mermaid
-sequenceDiagram
-    participant Gateway as maas-default-gateway
-    participant vSR as vSR ExtProc
-    participant Limitador
-    participant Client
-    
-    Note over Gateway,Client: After rate limit exceeded in Phase 3 (llama3-70b blocked)
-    Gateway->>Gateway: Check if already in fallback mode
-    
-    alt Already in Fallback
-        Gateway-->>Client: 429 Too Many Requests + Retry After<br/>X-RateLimit-Reset-After: 60<br/>OpenAI Compatible Error Format
-    else Not in Fallback Yet
-        Gateway->>vSR: Request fallback from accessible models<br/>X-Original-Model: llama3-70b<br/>X-Accessible-Models: llama3-70b,llama3-8b<br/>X-Rate-Limited-Models: llama3-70b
-        
-        vSR->>vSR: Select next best from accessible models<br/>Available: [llama3-8b] (excluding rate-limited)
-        
-        alt Fallback Available
-            vSR->>vSR: Select llama3-8b as fallback
-            vSR->>vSR: Inject transparency system prompt
-            vSR-->>Gateway: Fallback route + headers<br/>X-Fallback-Applied: true<br/>X-Original-Model: llama3-70b<br/>X-Fallback-Model: llama3-8b<br/>X-Fallback-Reason: rate_limit_exceeded
-            
-            Note over Gateway: Retry Phase 3 with fallback model
-            Gateway->>Limitador: Check rate limits for llama3-8b
-            Limitador-->>Gateway: Rate limits OK for fallback model
-            Gateway-->>Client: Fallback Model Response with Headers<br/>X-Model-Executed: llama3-8b<br/>X-Fallback-Applied: true
-        else No Accessible Fallback
-            Gateway-->>Client: 429 Too Many Requests<br/>All accessible models rate-limited
-        end
-    end
-```
+| Header | Source | Example | Purpose |
+|--------|---------|---------|---------|
+| `x-vsr-selected-model` | MaaS API | `llama3-70b` | Selected model identifier |
+| `x-vsr-selected-category` | MaaS API | `mathematics` | Detected content category |  
+| `x-vsr-confidence` | MaaS API | `0.95` | Classification confidence score |
+| `x-routing-duration` | MaaS API | `150ms` | Time spent on model selection |
 
-**Benefits**: 
-- 🔄 **Intelligent Constrained Fallback**: Selects from pre-authorized accessible models only
-- 📊 **OpenAI-Compatible Responses**: Follows OpenAI rate limiting response format
-- 💰 **Cost Optimization**: Automatically downgrades to cheaper accessible models
-- 🎯 **Improved UX**: Maintains service availability under quota pressure
-- 🚫 **No Authorization Failures**: Fallback selection still respects user permissions
+**Benefits:**
+- ✅ **Client Compatibility**: Maintains existing header interface for seamless migration
+- ✅ **Rich Metadata**: Provides classification insights and performance metrics
+- ✅ **Operational Visibility**: Headers support monitoring and debugging
+- ✅ **Centralized Control**: All metadata generated by single MaaS API service
 
-### 2.2 Request Flow Headers
+This centralized architecture eliminates the "back and forth" complexity you mentioned by keeping all integration logic in one place: the MaaS API service.
 
-```http
-# Phase 1: Client Request
+## 3. Implementation Strategy
+
+
 POST /chat/completions
 Authorization: Bearer sa-token-xyz
 Content-Type: application/json
