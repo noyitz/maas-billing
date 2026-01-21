@@ -1,252 +1,256 @@
-# vSR-MaaS Integration: Single-Pass Architecture
+# vSR-MaaS Integration: Enhanced Gateway Architecture
 
 **Document Status**: Technical Design  
 **Date**: January 2026  
 **Author**: Noy Itzikowitz
 
-## 1. Solution Overview
+## 1. Current Architecture Analysis
 
-**Problem**: Avoid multiple request parsing while integrating vSR semantic classification with MaaS authorization and model routing.
+### 1.1 MaaS Platform Current Flow
 
-**Solution**: Single Envoy ExtProc that combines MaaS authorization logic with vSR classification in one pass.
+**MaaS API Role**: Model listing (`/v1/models`) and token management only
+**Inference Flow**: Client → Gateway → Kuadrant (auth/rate limiting) → Target Model  
+**No MaaS API in inference path** - direct model access via `/{namespace}/{model}/v1/chat/completions`
 
-### Component Integration
+**Key Components:**
+- **Gateway**: `maas-default-gateway` (routes all traffic)
+- **Kuadrant**: Policy engine (AuthPolicy + RateLimitPolicy)  
+- **Authorino**: Authentication/authorization (SA token + tier lookup + RBAC)
+- **Limitador**: Rate limiting (tier-based: free=5/2m, premium=20/2m, enterprise=50/2m)
+- **Model Access**: Direct via HTTPRoutes created by LLMInferenceService
+
+### 1.2 vSR Platform Current Capabilities
+
+**vSR ExtProc**: Envoy External Processor (gRPC port 50051)
+**Classification**: ModernBERT-based intent, PII, and jailbreak detection
+**Model Selection**: Based on category classification
+**Headers**: Rich set of decision tracking headers (x-vsr-selected-*)
+
+## 2. Integration Solution
+
+**Problem**: Integrate semantic routing while maintaining single-pass efficiency and existing auth/rate limiting.
+
+**Solution**: Add vSR ExtProc to the Gateway processing pipeline alongside Kuadrant.
+
+### 2.1 Enhanced Gateway Architecture
 
 ```mermaid
 graph TB
-    subgraph "Request Flow"
-        Client[Client Request] --> Gateway[Envoy Gateway]
-        Gateway --> ExtProc[Unified ExtProc Service]
-        ExtProc --> Model[Selected Model]
+    subgraph "Client Layer"
+        Client[Client Applications]
     end
     
-    subgraph "Unified ExtProc Service"
-        ExtProcCore[ExtProc Handler]
-        MaaSAuth[MaaS Authorization Module]
-        VSRClassifier[vSR Classification Module]
-        ModelSelector[Model Selection Logic]
+    subgraph "Gateway Layer - maas-default-gateway" 
+        Gateway[Envoy Gateway<br/>maas.cluster.local]
+        
+        subgraph "Processing Pipeline"
+            Kuadrant[Kuadrant Policies]
+            VSRExtProc[vSR ExtProc<br/>:50051]
+        end
+        
+        subgraph "Policy Services"
+            Authorino[Authorino<br/>Auth Service]
+            Limitador[Limitador<br/>Rate Limiting]
+        end
     end
     
-    subgraph "External Services"
-        MaaSAPI[MaaS API<br/>User/Model Lookup]
-        VSRService[vSR Classification<br/>HTTP APIs]
-        KServeModel[Target KServe Model]
+    subgraph "Backend Services"
+        MaaSAPI[MaaS API<br/>Token + Model Listing]
+        VSRClassification[vSR Classification<br/>HTTP APIs]
+        TargetModel[KServe Model<br/>/{ns}/{model}/v1/chat/completions]
     end
     
-    ExtProcCore --> MaaSAuth
-    ExtProcCore --> VSRClassifier
-    ExtProcCore --> ModelSelector
+    Client --> Gateway
+    Gateway --> Kuadrant
+    Gateway --> VSRExtProc
     
-    MaaSAuth <--> MaaSAPI
-    VSRClassifier <--> VSRService
-    ModelSelector --> KServeModel
+    Kuadrant --> Authorino
+    Kuadrant --> Limitador
+    
+    Authorino <--> MaaSAPI
+    VSRExtProc <--> VSRClassification
+    
+    Gateway --> TargetModel
 ```
 
-## 2. Technical Implementation
+**Key Innovation**: vSR ExtProc runs **alongside** (not replacing) Kuadrant policies, enabling smart routing while preserving authentication/authorization.
 
-### 2.1 Single-Pass ExtProc Architecture
-
-The solution implements a **unified ExtProc service** that handles authorization, classification, and routing in a single request pass:
+### 2.2 Complete Inference Flow Sequence
 
 ```mermaid
 sequenceDiagram
     participant Client
-    participant Envoy
-    participant ExtProc as Unified ExtProc
-    participant MaaS as MaaS API
-    participant vSR as vSR Service
-    participant Model
+    participant Gateway as maas-default-gateway
+    participant Authorino
+    participant MaaSAPI as MaaS API
+    participant Limitador
+    participant VSRExtProc as vSR ExtProc
+    participant VSRService as vSR Classification
+    participant Model as Target Model
     
-    Client->>Envoy: POST /v1/chat/completions + Bearer token
-    Envoy->>ExtProc: ProcessRequest(headers, body)
+    Note over Client,Model: Current Flow: /{namespace}/{model}/v1/chat/completions
+    Client->>Gateway: POST /{namespace}/{model}/v1/chat/completions + Bearer Token
     
-    Note over ExtProc: Single-pass processing
-    ExtProc->>MaaS: Get user context + accessible models
-    MaaS-->>ExtProc: {user: "user-123", models: ["llama-70b", "granite-7b"]}
+    Note over Gateway,Limitador: Phase 1: Kuadrant Authentication & Authorization
+    Gateway->>Authorino: Validate Service Account Token
+    Authorino->>Authorino: TokenReview + Extract user groups
+    Authorino->>MaaSAPI: POST /v1/tiers/lookup {"groups": [...]}
+    MaaSAPI-->>Authorino: {"tier": "premium", "displayName": "Premium"}
+    Authorino->>Authorino: SubjectAccessReview (RBAC check)
+    Note over Authorino: resource: llminferenceservices, namespace: {ns}, name: {model}
+    Authorino-->>Gateway: Auth Success + Headers:<br/>x-identity-userid: user-123<br/>x-identity-tier: premium
     
-    ExtProc->>vSR: POST /api/v1/classify/intent<br/>{messages: [...], constrainedModels: ["llama-70b", "granite-7b"]}
-    vSR-->>ExtProc: {category: "math", confidence: 0.95, selectedModel: "llama-70b"}
+    Gateway->>Limitador: Apply RateLimitPolicy (tier: premium = 20/2m)  
+    Limitador-->>Gateway: Rate Limit OK
     
-    Note over ExtProc: vSR selected optimal model from allowed set
-    ExtProc-->>Envoy: Route to llama-70b + headers
+    Note over Gateway,VSRService: Phase 2: vSR Semantic Classification & Routing
+    Gateway->>VSRExtProc: ProcessRequest(headers, buffered body)
+    VSRExtProc->>VSRExtProc: Extract user context + accessible models from headers
+    VSRExtProc->>VSRService: POST /api/v1/classify/intent<br/>{messages: [...], constrainedModels: ["model-1", "model-2"]}
+    VSRService->>VSRService: ModernBERT classification + model selection
+    VSRService-->>VSRExtProc: {category: "mathematics", selectedModel: "math-specialist-model"}
+    VSRExtProc-->>Gateway: Route to math-specialist-model + Headers:<br/>x-vsr-destination-endpoint: math-specialist-model<br/>x-vsr-selected-category: mathematics<br/>x-vsr-selected-model: math-specialist-model
     
-    Envoy->>Model: Forward to selected model
-    Model-->>Client: Response with routing headers
+    Note over Gateway,Model: Phase 3: Model Execution
+    Gateway->>Model: Forward to selected model (math-specialist-model)
+    Model-->>Gateway: Response + Generated Content
+    Gateway-->>Client: Response + All Tracking Headers
 ```
 
-### 2.2 Component Interactions
+## 3. Headers and Metadata Flow
 
-#### Unified ExtProc Service
-- **Location**: Deployed as Kubernetes service alongside vSR
-- **Protocol**: gRPC ExtProc interface (port 50051)
-- **Function**: Single-pass request processing combining authorization + classification
+### 3.1 Existing Headers (Current MaaS)
 
-#### MaaS API Integration
-- **Endpoint**: `/api/v1/users/{user_id}/models` - Get accessible models for user
-- **Authentication**: Service-to-service using ExtProc service account
-- **Data**: Returns user context, tier, and authorized model list
-
-#### vSR Classification Integration  
-- **Endpoints**: 
-  - `/api/v1/classify/intent` - Content classification
-  - `/api/v1/classify/pii` - PII detection
-  - `/api/v1/classify/security` - Jailbreak detection
-- **Protocol**: HTTP REST calls from ExtProc
-- **Input**: Chat request body (messages array)
-
-#### Envoy Configuration
-```yaml
-http_filters:
-- name: envoy.filters.http.ext_proc
-  typed_config:
-    "@type": type.googleapis.com/envoy.extensions.filters.http.ext_proc.v3.ExternalProcessor
-    grpc_service:
-      envoy_grpc:
-        cluster_name: unified_extproc_service  # New unified service
-    processing_mode:
-      request_header_mode: "SEND"
-      request_body_mode: "BUFFERED"  # Required for classification
-      response_header_mode: "SEND"
-```
-
-#### Kuadrant Policy Configuration
-```yaml
-# Remove separate auth policies, delegate to ExtProc
-apiVersion: kuadrant.io/v1beta3
-kind: AuthPolicy
-metadata:
-  name: maas-extproc-auth
-spec:
-  targetRef:
-    group: gateway.networking.k8s.io
-    kind: Gateway
-    name: maas-default-gateway
-  rules:
-    authentication:
-      "delegate-to-extproc":
-        extProc:
-          endpoint: unified_extproc_service:50051
-```
-
-### 2.3 ExtProc Implementation
-
-```go
-// Unified ExtProc service combining MaaS auth + vSR classification
-type UnifiedExtProcServer struct {
-    maasClient *maas.Client
-    vsrClient  *vsr.ClassificationClient
-    modelMap   map[string]ModelInfo
-}
-
-func (s *UnifiedExtProcServer) Process(
-    ctx context.Context, 
-    req *extproc.ProcessingRequest,
-) (*extproc.ProcessingResponse, error) {
-    
-    // 1. Extract user context from bearer token
-    userID, err := s.extractUserFromToken(req.Request.Headers)
-    if err != nil {
-        return s.createAuthErrorResponse(), nil
-    }
-    
-    // 2. Get accessible models for user (single MaaS API call)
-    models, err := s.maasClient.GetUserModels(ctx, userID)
-    if err != nil {
-        return s.createAuthErrorResponse(), nil
-    }
-    
-    // 3. Classify request content with model constraints (single vSR call)
-    classifyRequest := vsr.ClassifyRequest{
-        Messages: extractMessages(body),
-        ConstrainedModels: extractModelNames(models), // Pass allowed models to vSR
-    }
-    classification, err := s.vsrClient.ClassifyWithConstraints(ctx, classifyRequest)
-    if err != nil {
-        return s.createErrorResponse("Classification failed"), nil
-    }
-    
-    // 4. Security check
-    if classification.IsJailbreak {
-        return s.createSecurityErrorResponse(), nil
-    }
-    
-    // 5. vSR returns pre-selected model from allowed set
-    selectedModel := classification.SelectedModel // vSR already selected from constraints
-    
-    // 6. Return routing decision
-    return s.createRoutingResponse(selectedModel, classification), nil
-}
-```
-
-### 2.4 Response Headers
-
+**Authorino → Gateway (Existing)**
 | Header | Source | Example | Purpose |
 |--------|---------|---------|---------|
-| `x-vsr-selected-model` | ExtProc | `llama-70b` | Selected model identifier |
-| `x-vsr-category` | ExtProc | `mathematics` | Detected content category |
-| `x-vsr-confidence` | ExtProc | `0.95` | Classification confidence |
-| `x-maas-user-tier` | ExtProc | `premium` | User tier for billing |
+| `x-identity-userid` | Authorino | `user-123` | User identification from SA token |
+| `x-identity-tier` | Authorino | `premium` | Tier from MaaS API lookup |
 
-## 3. Deployment
+### 3.2 New Headers (vSR Integration)
 
-### 3.1 Service Deployment
+**vSR ExtProc → Gateway (New)**
+| Header | Source | Example | Purpose |
+|--------|---------|---------|---------|
+| `x-vsr-destination-endpoint` | vSR ExtProc | `math-specialist-model` | Model routing destination |
+| `x-vsr-selected-category` | vSR ExtProc | `mathematics` | Detected content category |
+| `x-vsr-selected-model` | vSR ExtProc | `math-specialist-model` | Selected model identifier |
+| `x-vsr-selected-reasoning` | vSR ExtProc | `on` | Reasoning mode status |
+| `x-vsr-selected-decision` | vSR ExtProc | `math_decision` | Decision engine result |
 
+**Security Headers (Conditional)**
+| Header | Source | When | Purpose |
+|--------|---------|------|---------|
+| `x-vsr-pii-violation` | vSR ExtProc | PII detected | Request blocked for PII |
+| `x-vsr-jailbreak-blocked` | vSR ExtProc | Jailbreak detected | Request blocked for security |
+
+### 3.3 Internal Processing Headers
+
+**ExtProc Internal Logic (Not exposed to client)**
+| Data | Source | Example | Usage |
+|------|---------|---------|-------|
+| Accessible Models | From user RBAC context | `["model-1", "model-2"]` | Constrain vSR selection |
+| User Groups | From Authorino headers | `["premium-users"]` | Model access control |
+
+## 4. Implementation Requirements
+
+### 4.1 Changes Required by Component
+
+#### vSR Platform Changes 
+**Status**: ✅ **Minimal changes** - vSR already supports most requirements
+
+**Required Additions:**
+1. **Model Constraint API**: Add `constrainedModels` parameter to classification endpoints
+   ```go
+   // Add to existing /api/v1/classify/intent endpoint
+   type ClassifyRequest struct {
+       Text             string   `json:"text"`             // ✅ Existing
+       ConstrainedModels []string `json:"constrainedModels"` // 🆕 New field
+   }
+   ```
+
+2. **Model Selection Response**: Include selected model in classification response
+   ```go
+   // Extend existing response
+   type ClassifyResponse struct {
+       Category      string  `json:"category"`     // ✅ Existing  
+       Confidence    float64 `json:"confidence"`   // ✅ Existing
+       SelectedModel string  `json:"selectedModel"` // 🆕 New field
+   }
+   ```
+
+3. **ExtProc Integration**: Add MaaS-specific headers processing
+   - Extract user context from Authorino headers (`x-identity-*`)
+   - Derive accessible models from user RBAC/tier information
+   - Map category → model selection within constraints
+
+#### MaaS Platform Changes
+**Status**: ✅ **No changes required** - MaaS continues current role
+
+**Confirmed No Changes:**
+- ✅ Keep existing `/v1/models` endpoint (model listing)  
+- ✅ Keep existing `/v1/tiers/lookup` endpoint (used by Authorino)
+- ✅ Keep existing token management (`/v1/tokens`, `/v1/api-keys`)
+- ✅ No new inference endpoints needed
+
+#### Kuadrant Configuration Changes  
+**Status**: ⚠️ **Gateway configuration only**
+
+**Required Additions:**
+1. **Add vSR ExtProc Filter** to `maas-default-gateway`
+   ```yaml
+   # Add to existing Envoy configuration
+   http_filters:
+   - name: envoy.filters.http.ext_proc
+     typed_config:
+       "@type": type.googleapis.com/envoy.extensions.filters.http.ext_proc.v3.ExternalProcessor
+       grpc_service:
+         envoy_grpc:
+           cluster_name: vsr_extproc_service
+       processing_mode:
+         request_header_mode: "SEND"
+         request_body_mode: "BUFFERED"  # Required for classification
+         response_header_mode: "SEND"
+   ```
+
+2. **Keep Existing Policies** - No changes to AuthPolicy or RateLimitPolicy
+   ```yaml
+   # ✅ Keep existing gateway-auth-policy.yaml
+   # ✅ Keep existing rate-limit-policy.yaml  
+   # ✅ Keep existing token-limit-policy.yaml
+   ```
+
+### 4.2 Deployment Architecture
+
+**Service Deployment:**
 ```yaml
-# unified-extproc-service.yaml
+# vsr-extproc-service.yaml  
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: unified-extproc-service
+  name: vsr-extproc-service
 spec:
   template:
     spec:
       containers:
-      - name: unified-extproc
-        image: maas/unified-extproc:latest
+      - name: vsr-extproc
+        image: vsr/semantic-router:latest  # ✅ Existing vSR image
         ports:
-        - containerPort: 50051  # gRPC ExtProc
+        - containerPort: 50051  # ✅ Existing gRPC port
         env:
-        - name: MAAS_API_ENDPOINT
-          value: "http://maas-api:8080"
-        - name: VSR_API_ENDPOINT  
-          value: "http://vsr-service:9090"
-        - name: LOG_LEVEL
-          value: "INFO"
+        - name: VSR_CONFIG_PATH
+          value: "/config/router-config.yaml"
+        - name: MAAS_INTEGRATION_MODE  # 🆕 New flag
+          value: "true"
 ```
 
-### 3.2 Benefits of Single-Pass Architecture
+### 4.3 Benefits Summary
 
-✅ **Efficiency**: One request parse, no "back and forth" to Envoy  
-✅ **Performance**: Parallel MaaS + vSR calls within single ExtProc  
-✅ **Flexibility**: Easy to add new classification types (GIE, llm-d integration)  
-✅ **Maintainability**: All integration logic in one service  
-✅ **Scalability**: ExtProc scales independently from gateway  
+✅ **Minimal Changes**: vSR needs only API extensions, MaaS needs zero changes  
+✅ **Single-Pass Processing**: No "back and forth" request parsing  
+✅ **Preserves Security**: Full Kuadrant auth/rate limiting maintained  
+✅ **Flexible Composition**: Easy to add GIE, llm-d without additional parsing  
+✅ **Zero Authorization Failures**: vSR only selects from user-accessible models  
+✅ **Operational Simplicity**: Leverages existing production infrastructure  
 
-This design directly addresses the composition flexibility requirement - new components like GIE can be added to the unified ExtProc without additional Envoy parsing passes.
-
-### 3.3 Model Constraint Flow
-
-The critical innovation is passing **constrained model sets** to vSR for selection:
-
-```go
-// vSR receives only user-authorized models
-type ClassifyRequest struct {
-    Messages         []ChatMessage `json:"messages"`
-    ConstrainedModels []string     `json:"constrainedModels"` // Only user-accessible models
-}
-
-// vSR selects optimal model from constraints
-type ClassifyResponse struct {
-    Category      string  `json:"category"`
-    Confidence    float64 `json:"confidence"`
-    SelectedModel string  `json:"selectedModel"`  // Selected from constrainedModels only
-    IsJailbreak   bool    `json:"isJailbreak"`
-}
-```
-
-**Benefits:**
-- ✅ **Zero Authorization Failures**: vSR cannot select unauthorized models
-- ✅ **Intelligent Selection**: vSR picks optimal model from user's allowed set  
-- ✅ **Security**: Authorization happens before classification
-- ✅ **Efficiency**: Single classification call includes model selection
-
+This design directly addresses the efficiency requirement while maintaining the robust security and policy enforcement of the current MaaS architecture.
