@@ -264,9 +264,8 @@ graph TB
 - 🆕 **NEW**: New components to be implemented
 - 🆕 **ENHANCED**: Existing components that require enhancements
 
-#### Phase 1: Authentication & User Context Generation ✅ EXISTING
+#### Phase 1: Authentication & User Context Generation ✅ EXISTING - No Changes Required
 
-**Status: EXISTING - No Changes Required**
 - ✅ **Standard RHCL Flow**: Existing Authorino/Limitador logic unchanged
 - ✅ **MaaS Authentication**: Current security and authentication patterns maintained
 - ✅ **User Context Available**: Headers available for downstream processing
@@ -289,9 +288,8 @@ sequenceDiagram
     Kuadrant-->>Gateway: Policy Decision (Allow) + Headers:<br/>X-User-ID: user-123<br/>X-Tier: premium<br/>X-Groups: tier-premium-users,specialists
 ```
 
-#### Phase 2: Model Access Decision & Header Injection 🆕 NEW
+#### Phase 2: Model Access Decision & Header Injection 🆕 NEW - Implementation Required
 
-**Status: NEW Implementation Required**
 - 🆕 **MaaS API Endpoint**: `/api/v1/users/{userId}/accessible-models` 
 - 🆕 **RHCL Integration**: MaaS API calls to Kubernetes API (RBAC) and Limitador (rate limits)
 - 🆕 **Smart Caching**: Cache with token-aware TTL and quota tracking
@@ -336,9 +334,8 @@ sequenceDiagram
     Gateway->>Gateway: Inject accessible models into headers:<br/>X-Accessible-Models: llama3-70b,llama3-8b<br/>X-Model-Quotas: llama3-70b:85000,llama3-8b:95000
 ```
 
-#### Phase 3: Constrained Semantic Routing 🆕 ENHANCED
+#### Phase 3: Constrained Semantic Routing 🆕 ENHANCED - vSR ExtProc Enhancements Required
 
-**Status: ENHANCED - vSR ExtProc Enhancements Required**
 - 🆕 **Header-Based Constraints**: Parse X-Accessible-Models for routing constraints
 - 🆕 **Quota-Aware Selection**: Consider token quotas in model selection logic
 - ✅ **Security Features**: Existing PII detection and jailbreak prevention (unchanged)
@@ -385,9 +382,8 @@ sequenceDiagram
     end
 ```
 
-#### Phase 4: Model Execution ✅ EXISTING
+#### Phase 4: Model Execution ✅ EXISTING - KServe Execution Unchanged
 
-**Status: EXISTING - KServe Execution Unchanged**
 - ✅ **Model Serving**: Existing KServe infrastructure handles model execution
 - ✅ **Response Generation**: Standard model response processing
 - ✅ **Usage Metadata**: Token consumption tracking available
@@ -405,9 +401,8 @@ sequenceDiagram
     Gateway-->>Client: Model Response with Headers:<br/>X-Model-Executed: llama3-70b<br/>X-Tokens-Used: 1500
 ```
 
-#### Phase 5: Smart Cache Updates 🆕 NEW
+#### Phase 5: Smart Cache Updates 🆕 NEW - Smart Cache Management Required
 
-**Status: NEW - Smart Cache Management Required**
 - 🆕 **Usage Tracking API**: New endpoint for real-time token consumption reporting
 - 🆕 **Smart Cache Invalidation**: Intelligent cache updates based on quota consumption  
 - 🆕 **Dynamic Availability**: Real-time model availability based on quota exhaustion
