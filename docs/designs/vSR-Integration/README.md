@@ -473,30 +473,7 @@ X-MaaS-Quota-Remaining: 83500              # 🆕 Remaining tokens after executi
 
 ## 3. Implementation Strategy
 
-### 3.1 Existing Infrastructure
-
-The implementation leverages extensive existing production-ready infrastructure:
-
-#### MaaS Platform (Production Ready)
-- ✅ **MaaS API**: Go-based API with token management (ephemeral + named API keys)
-- ✅ **Storage Options**: In-memory, disk, and external database storage modes
-- ✅ **Gateway Policies**: AuthPolicy with tier resolution and RBAC integration
-- ✅ **Model Discovery**: KServe InferenceService and LLMInferenceService discovery
-- ✅ **User Management**: Tier-based access control (free/premium/enterprise)
-
-#### vSR Platform (Production Ready)  
-- ✅ **ExtProc Implementation**: Envoy External Processor gRPC service (port 50051)
-- ✅ **vSR CLI**: Comprehensive deployment and management CLI
-- ✅ **Kubernetes Deployment**: Complete K8s deployment manifests and Helm charts
-- ✅ **Multi-Environment Support**: Local, Docker, Kubernetes deployment support
-- ✅ **Security Features**: PII detection and jailbreak prevention capabilities
-
-#### RHCL Platform (No Changes Required)
-- ✅ **Authorino**: Service Account token validation with existing MaaS API tier lookup
-- ✅ **Limitador**: Existing rate limiting infrastructure (unchanged)
-- ✅ **Kuadrant**: Policy orchestration and header injection (unchanged)
-
-### 3.2 Implementation Requirements
+### 3.1 Implementation Requirements
 
 #### RHCL (Red Hat Connectivity Link) - No Changes Required
 - ✅ **Token Validation**: Existing Kubernetes `TokenReview` for Service Account tokens (unchanged)
@@ -526,7 +503,7 @@ The implementation leverages extensive existing production-ready infrastructure:
 - 🆕 **Usage Reporting**: New capability to report token consumption back to MaaS API
 - 🆕 **Constrained Model Selection**: Parse MaaS API responses for intelligent routing
 
-### 3.3 External Model Support Requirements (Parallel Work)
+### 3.2 External Model Support Requirements (Parallel Work)
 
 The integration requires extending MaaS to support external (non-KServe) models. This work can be developed in parallel to the core vSR integration:
 
@@ -619,7 +596,7 @@ vsr/src/semantic-router/
 - **Model Metadata Standards**: Can be defined as independent specification
 - **Provider Client Libraries**: Modular development per provider
 
-### 3.4 Migration Strategy
+### 3.3 Migration Strategy
 
 ```mermaid
 graph TB
@@ -657,7 +634,7 @@ graph TB
 3. **Integrate with Llama Stack** for standardized model APIs
 4. **Full production optimization** and enterprise-grade features
 
-### 3.5 CLI Integration and Management
+### 3.4 CLI Integration and Management
 
 The integration leverages the existing comprehensive `vsr` CLI tool for deployment and management:
 
