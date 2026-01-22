@@ -233,28 +233,38 @@ The integration implements a **multi-phase enhanced flow** that maximizes securi
 
 ```mermaid
 graph TB
-    subgraph "Phase 1: Authentication & User Context"
+    subgraph "Phase 1: Authentication & User Context ✅ EXISTING"
         P1[MaaS Authentication<br/>+ User Tier Resolution<br/>+ User Context Injection]
     end
     
-    subgraph "Phase 2: Intelligent Model Access & Routing"
-        P2[vSR → MaaS API Query<br/>+ Model Access Decision<br/>+ Constrained Semantic Routing]
+    subgraph "Phase 2: Model Access Decision 🆕 NEW"
+        P2[MaaS API Model List Query<br/>+ RBAC + Token Availability Check<br/>+ Accessible Models Header Injection]
     end
     
-    subgraph "Phase 3: Streamlined Execution"
-        P3[Rate Limiting<br/>+ Model Execution<br/>+ Usage Tracking]
+    subgraph "Phase 3: Constrained Semantic Routing 🆕 ENHANCED"
+        P3[vSR Intelligent Routing<br/>+ Constrained to Accessible Models<br/>+ Security & Classification]
     end
     
-    subgraph "Phase 4: Intelligent Fallback (Conditional)"
-        P4[Alternative Model Selection<br/>+ Retry Logic<br/>+ Cache Updates]
+    subgraph "Phase 4: Model Execution ✅ EXISTING"
+        P4[KServe Model Execution<br/>+ Response Generation]
+    end
+    
+    subgraph "Phase 5: Cache Updates 🆕 NEW"
+        P5[Usage Tracking<br/>+ Smart Cache Updates<br/>+ Token Consumption]
     end
     
     P1 --> P2
     P2 --> P3
     P3 --> P4
+    P4 --> P5
 ```
 
-#### Phase 1: Authentication & User Context Generation
+**Legend:**
+- ✅ **EXISTING**: Components that exist today and require no changes
+- 🆕 **NEW**: New components to be implemented
+- 🆕 **ENHANCED**: Existing components that require enhancements
+
+#### Phase 1: Authentication & User Context Generation ✅ EXISTING
 
 ```mermaid
 sequenceDiagram
@@ -274,29 +284,60 @@ sequenceDiagram
     Kuadrant-->>Gateway: Policy Decision (Allow) + Headers:<br/>X-User-ID: user-123<br/>X-Tier: premium<br/>X-Groups: tier-premium-users,specialists
 ```
 
-**Benefits**: 
-- ✅ **Simplified RHCL Flow**: No changes to existing Authorino/Limitador logic
-- ✅ **Standard MaaS Authentication**: Maintains existing security and authentication patterns
-- ✅ **User Context Injection**: Provides necessary headers for downstream vSR processing
-- ✅ **Minimal Gateway Changes**: Leverages existing policy infrastructure
+**Status: EXISTING - No Changes Required**
+- ✅ **Standard RHCL Flow**: Existing Authorino/Limitador logic unchanged
+- ✅ **MaaS Authentication**: Current security and authentication patterns maintained
+- ✅ **User Context Available**: Headers available for downstream processing
 
-#### Phase 2: Intelligent Model Access Decision & Semantic Routing
+#### Phase 2: Model Access Decision & Header Injection 🆕 NEW
+
+```mermaid
+sequenceDiagram
+    participant Gateway as maas-default-gateway
+    participant MaaSAPI as MaaS API
+    participant Cache as Model Access Cache
+    
+    Note over Gateway,Cache: After Phase 1 - User context available in headers
+    Gateway->>MaaSAPI: GET /api/v1/users/user-123/accessible-models<br/>Query: RBAC + Token Availability + Rate Limits
+    
+    MaaSAPI->>Cache: Check cached model access for user-123
+    
+    alt Cache Hit & Still Valid
+        Cache-->>MaaSAPI: Cached accessible models with token status
+    else Cache Miss or Stale
+        MaaSAPI->>MaaSAPI: 1. Check RBAC permissions for all models<br/>2. Check current token quotas per model<br/>3. Check rate limit status per model
+        MaaSAPI->>Cache: Store results with smart TTL (based on token consumption)
+        Cache-->>MaaSAPI: Fresh accessible models with availability
+    end
+    
+    MaaSAPI-->>Gateway: Response:<br/>{<br/>"accessible_models": ["llama3-70b", "llama3-8b"],<br/>"model_status": {<br/>"llama3-70b": {"available": true, "remaining_tokens": 85000},<br/>"llama3-8b": {"available": true, "remaining_tokens": 95000}<br/>}<br/>}
+    
+    Gateway->>Gateway: Inject accessible models into headers:<br/>X-Accessible-Models: llama3-70b,llama3-8b<br/>X-Model-Quotas: llama3-70b:85000,llama3-8b:95000
+```
+
+**Status: NEW Implementation Required**
+- 🆕 **MaaS API Endpoint**: `/api/v1/users/{userId}/accessible-models` 
+- 🆕 **Smart Caching**: Cache with token-aware TTL and quota tracking
+- 🆕 **Header Injection**: Inject accessible models list into request headers
+- 🆕 **Real-time Availability**: Live RBAC + quota + rate limit checking
+
+#### Phase 3: Constrained Semantic Routing 🆕 ENHANCED
 
 ```mermaid
 sequenceDiagram
     participant Gateway as maas-default-gateway
     participant vSR as vSR ExtProc Service
-    participant MaaSAPI as MaaS API
     participant Cache as Semantic Cache
     participant Client
     
-    Gateway->>vSR: ExtProc Call with Request Body + User Context<br/>X-User-ID: user-123<br/>X-Tier: premium<br/>X-Groups: tier-premium-users
+    Note over Gateway,Client: After Phase 2 - Accessible models available in headers
+    Gateway->>vSR: ExtProc Call with Request + Headers:<br/>X-User-ID: user-123<br/>X-Tier: premium<br/>X-Accessible-Models: llama3-70b,llama3-8b<br/>X-Model-Quotas: llama3-70b:85000,llama3-8b:95000
     
     vSR->>Cache: Check semantic cache (namespaced by X-User-ID)
     
     alt Cache Hit - Performance Boost
-        Cache-->>vSR: Return cached response/routing decision
-        vSR-->>Gateway: Cached routing decision
+        Cache-->>vSR: Return cached routing decision
+        vSR-->>Gateway: Cached routing decision (if model still in accessible list)
     else Cache Miss - Full Processing
         vSR->>vSR: 1. PII Detection & Redaction (Privacy Protection)
         vSR->>vSR: 2. Jailbreak Detection (Security Guard)
@@ -305,91 +346,66 @@ sequenceDiagram
             vSR-->>Gateway: HTTP 403 Forbidden (IMMEDIATE TERMINATION)
             Gateway-->>Client: 403 Forbidden - Security Violation
         else Request is Safe (PII Redacted)
-            vSR->>MaaSAPI: GET /api/v1/users/user-123/accessible-models<br/>Query model access with RBAC + rate limits + token availability
-            MaaSAPI->>MaaSAPI: Check user permissions, rate limits, token quotas
-            MaaSAPI-->>vSR: Accessible models with status:<br/>{<br/>"accessible_models": ["llama3-70b", "llama3-8b"],<br/>"rate_limit_status": {<br/>"llama3-70b": {"available": true, "remaining_tokens": 85000},<br/>"llama3-8b": {"available": true, "remaining_tokens": 95000}<br/>}}</br>
-            
             vSR->>vSR: 3. Semantic Classification (ModernBERT)
-            vSR->>vSR: 4. Constrained Model Selection:<br/>- Parse accessible models from MaaS API<br/>- Apply tier-based preferences (premium tier)<br/>- Select optimal model from AVAILABLE set only
+            vSR->>vSR: 4. Constrained Model Selection:<br/>- Parse X-Accessible-Models header<br/>- Apply tier-based preferences<br/>- Select optimal model from ACCESSIBLE list only<br/>- Consider token quotas in selection
             vSR->>Cache: Store classification result (namespaced by user)
-            vSR-->>Gateway: Header Modifications + Redacted Content:<br/>Host: llama3-70b-service<br/>X-MaaS-Model-Selected: llama3-70b<br/>X-Category: mathematics<br/>X-Confidence: 0.94<br/>X-VSR-Classification-Time: 45ms
+            vSR-->>Gateway: Header Modifications + Redacted Content:<br/>Host: llama3-70b-service<br/>X-MaaS-Model-Selected: llama3-70b<br/>X-Category: mathematics<br/>X-Confidence: 0.94<br/>X-VSR-Classification-Time: 45ms<br/>X-Tokens-Estimated: 1500
         end
     end
 ```
 
-**Benefits**: 
-- 🧠 **Intelligent Access Decision**: MaaS API provides real-time model access with RBAC + rate limits + tokens
-- 🔒 **Privacy Protection**: PII detection and redaction protects sensitive data  
-- 🛡️ **Security Guard**: Jailbreak detection blocks malicious prompts
-- ⚡ **Performance**: User-namespaced semantic caching prevents data leakage
-- 👤 **Centralized Access Logic**: All model access decisions centralized in MaaS API
-- 📊 **Real-time Availability**: Rate limit and token availability checked before routing
-- 🚫 **Authorization Failure Elimination**: vSR only routes to accessible models
+**Status: ENHANCED - vSR ExtProc Enhancements Required**
+- 🆕 **Header-Based Constraints**: Parse X-Accessible-Models for routing constraints
+- 🆕 **Quota-Aware Selection**: Consider token quotas in model selection logic
+- ✅ **Security Features**: Existing PII detection and jailbreak prevention (unchanged)
+- ✅ **Semantic Classification**: Existing ModernBERT classification (unchanged)
+- 🆕 **User-Namespaced Cache**: Enhanced caching to prevent data leakage
 
-#### Phase 3: Model Execution & Usage Tracking
+#### Phase 4: Model Execution ✅ EXISTING
 
 ```mermaid
 sequenceDiagram
     participant Gateway as maas-default-gateway
     participant KServe as Selected Model
-    participant vSR as vSR ExtProc Service
-    participant MaaSAPI as MaaS API
     participant Client
     
-    Note over Gateway,Client: After vSR model selection (llama3-70b) - Access ALREADY VERIFIED
+    Note over Gateway,Client: After Phase 3 - Model selected and access verified
     Gateway->>KServe: Forward to Selected Model (llama3-70b)
     KServe->>KServe: Process Request & Generate Response
     KServe-->>Gateway: Model Response + Usage Metadata
-    Gateway-->>Client: Model Response
-    
-    Note over vSR,MaaSAPI: Async Usage Tracking
-    vSR->>MaaSAPI: POST /api/v1/users/user-123/usage<br/>Update token consumption:<br/>{<br/>"model": "llama3-70b",<br/>"tokens_used": 1500,<br/>"request_timestamp": "2026-01-22T10:30:00Z"<br/>}
-    MaaSAPI->>MaaSAPI: Update user quotas & invalidate relevant cache entries
-    MaaSAPI-->>vSR: Usage recorded successfully
+    Gateway-->>Client: Model Response with Headers:<br/>X-Model-Executed: llama3-70b<br/>X-Tokens-Used: 1500
 ```
 
-**Benefits**: 
-- ⚡ **Streamlined Execution**: Direct model execution with pre-verified access
-- 📊 **Smart Cache Updates**: Real-time quota updates invalidate stale cache entries  
-- 🔄 **Async Usage Tracking**: Non-blocking usage recording for performance
-- 💰 **Accurate Billing**: Token consumption tracked per model and user
+**Status: EXISTING - KServe Execution Unchanged**
+- ✅ **Model Serving**: Existing KServe infrastructure handles model execution
+- ✅ **Response Generation**: Standard model response processing
+- ✅ **Usage Metadata**: Token consumption tracking available
 
-#### Phase 4: Intelligent Fallback Logic (Conditional)
+#### Phase 5: Smart Cache Updates 🆕 NEW
 
 ```mermaid
 sequenceDiagram
     participant Gateway as maas-default-gateway
-    participant vSR as vSR ExtProc
     participant MaaSAPI as MaaS API
-    participant Client
+    participant Cache as Model Access Cache
     
-    Note over Gateway,Client: After model execution fails (llama3-70b quota exceeded during execution)
-    Gateway->>vSR: Request fallback routing<br/>X-Original-Model: llama3-70b<br/>X-Failure-Reason: quota_exceeded
+    Note over Gateway,Cache: After successful model execution - update quotas
+    Gateway->>MaaSAPI: POST /api/v1/users/user-123/usage<br/>Report consumption:<br/>{<br/>"model": "llama3-70b",<br/>"tokens_used": 1500,<br/>"request_timestamp": "2026-01-22T10:30:00Z",<br/>"success": true<br/>}
     
-    vSR->>MaaSAPI: GET /api/v1/users/user-123/accessible-models<br/>Refresh model availability after quota consumption
-    MaaSAPI->>MaaSAPI: Re-check quotas after recent consumption
-    MaaSAPI-->>vSR: Updated accessible models:<br/>{<br/>"accessible_models": ["llama3-8b"],<br/>"rate_limit_status": {<br/>"llama3-70b": {"available": false, "remaining_tokens": 0},<br/>"llama3-8b": {"available": true, "remaining_tokens": 95000}<br/>}}
+    MaaSAPI->>MaaSAPI: Update user token quotas:<br/>- Subtract 1500 tokens from llama3-70b quota<br/>- Update rate limit counters
     
-    alt Fallback Available
-        vSR->>vSR: Select llama3-8b as fallback based on original classification
-        vSR-->>Gateway: Fallback route + headers<br/>X-Fallback-Applied: true<br/>X-Original-Model: llama3-70b<br/>X-Fallback-Model: llama3-8b<br/>X-Fallback-Reason: quota_exceeded
-        
-        Note over Gateway: Retry execution with fallback model
-        Gateway-->>Client: Fallback Model Response with Headers<br/>X-Model-Executed: llama3-8b<br/>X-Fallback-Applied: true
-        
-        Note over vSR,MaaSAPI: Update cache with fallback usage
-        vSR->>MaaSAPI: POST /api/v1/users/user-123/usage (fallback model usage)
-    else No Accessible Fallback
-        Gateway-->>Client: 429 Too Many Requests<br/>All accessible models quota exceeded<br/>X-RateLimit-Reset-After: 3600
-    end
+    MaaSAPI->>Cache: Smart cache invalidation based on consumption:<br/>- Update cached quotas for user-123<br/>- If model quota exhausted, mark as unavailable<br/>- Refresh TTL based on consumption rate
+    
+    Cache-->>MaaSAPI: Cache updated with new availability status
+    MaaSAPI-->>Gateway: Usage recorded & cache updated
 ```
 
-**Benefits**: 
-- 🔄 **Real-time Fallback**: Fresh quota checks ensure accurate fallback decisions
-- 📊 **OpenAI-Compatible Responses**: Follows OpenAI rate limiting response format  
-- 💰 **Cost Optimization**: Automatically downgrades to cheaper available models
-- 🎯 **Improved UX**: Maintains service availability under quota pressure
-- 🚫 **Access-Aware Fallback**: Fallback selection respects user permissions and quotas
+**Status: NEW - Smart Cache Management Required**
+- 🆕 **Usage Tracking API**: New endpoint for real-time token consumption reporting
+- 🆕 **Smart Cache Invalidation**: Intelligent cache updates based on quota consumption  
+- 🆕 **Dynamic Availability**: Real-time model availability based on quota exhaustion
+- 🆕 **Consumption-Based TTL**: Cache TTL adjusted based on user consumption patterns
+
 
 ### 2.2 Request Flow Headers
 
@@ -400,31 +416,39 @@ Authorization: Bearer sa-token-xyz
 Content-Type: application/json
 {"messages": [{"role": "user", "content": "Solve this calculus problem..."}]}
 
-# Phase 1: After Authentication & User Context Injection
+# Phase 1: After Authentication & User Context (✅ EXISTING - Unchanged)
 POST /chat/completions
 Authorization: Bearer sa-token-xyz
 X-User-ID: math-user-123                    # ✅ User identification
 X-Tier: premium                             # ✅ User subscription tier
 X-Groups: "tier-premium-users,specialists"  # ✅ Kubernetes groups for RBAC
 
-# Phase 2: After vSR → MaaS API Model Access Decision & Semantic Routing
+# Phase 2: After MaaS API Model Access Decision (🆕 NEW)
+POST /chat/completions
+Authorization: Bearer sa-token-xyz
+X-User-ID: math-user-123                    # ✅ Passed through
+X-Tier: premium                             # ✅ Passed through
+X-Accessible-Models: llama3-70b,llama3-8b  # 🆕 Pre-authorized accessible models
+X-Model-Quotas: llama3-70b:85000,llama3-8b:95000  # 🆕 Token quotas per model
+
+# Phase 3: After vSR Constrained Semantic Routing (🆕 ENHANCED)
 POST /models/llama3-70b/chat/completions    # 🆕 Path rewritten for model routing
 Authorization: Bearer sa-token-xyz
-X-User-ID: math-user-123                    # ✅ Passed through from Phase 1
-X-Tier: premium                             # ✅ Passed through from Phase 1
-X-MaaS-Model-Selected: llama3-70b          # 🆕 For billing tracking
+X-User-ID: math-user-123                    # ✅ Passed through
+X-Tier: premium                             # ✅ Passed through
+X-MaaS-Model-Selected: llama3-70b          # 🆕 Selected from accessible list
 X-Category: mathematics                     # 🆕 Semantic classification
 X-Confidence: 0.94                         # 🆕 vSR classification confidence
 X-VSR-Classification-Time: 45ms            # 🆕 vSR performance metrics
-X-MaaS-Access-Check-Time: 12ms             # 🆕 MaaS API access check duration
+X-Tokens-Estimated: 1500                   # 🆕 Estimated token usage
 
-# Phase 3: Successful Model Execution
+# Phase 4: Successful Model Execution (✅ EXISTING - Enhanced headers)
 HTTP/1.1 200 OK
 Content-Type: application/json
 X-Model-Executed: llama3-70b               # 🆕 Actually executed model
+X-Tokens-Used: 1500                        # 🆕 Actual token consumption
+X-Request-Duration: 2.5s                   # ✅ Existing metric
 X-MaaS-Quota-Remaining: 83500              # 🆕 Remaining tokens after execution
-X-Request-Duration: 2.5s
-X-Tokens-Used: 1500                        # 🆕 Token consumption
 {"choices": [{"message": {"content": "The derivative of x² is 2x..."}}]}
 ```
 
