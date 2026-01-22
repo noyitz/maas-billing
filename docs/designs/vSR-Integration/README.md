@@ -233,20 +233,20 @@ The integration implements a **multi-phase enhanced flow** that maximizes securi
 
 ```mermaid
 graph TB
-    subgraph "Phase 1: Enhanced Pre-Authorization"
-        P1[MaaS Authentication<br/>+ Bulk Model Authorization<br/>+ Model Constraints Generation]
+    subgraph "Phase 1: Authentication & User Context"
+        P1[MaaS Authentication<br/>+ User Tier Resolution<br/>+ User Context Injection]
     end
     
-    subgraph "Phase 2: Constrained Semantic Routing"
-        P2[vSR Intelligence<br/>+ Model Constraint Parsing<br/>+ Optimal Model Selection]
+    subgraph "Phase 2: Intelligent Model Access & Routing"
+        P2[vSR → MaaS API Query<br/>+ Model Access Decision<br/>+ Constrained Semantic Routing]
     end
     
     subgraph "Phase 3: Streamlined Execution"
-        P3[Rate Limiting<br/>+ Model Execution<br/>No Auth Check Needed]
+        P3[Rate Limiting<br/>+ Model Execution<br/>+ Usage Tracking]
     end
     
     subgraph "Phase 4: Intelligent Fallback (Conditional)"
-        P4[Alternative Model Selection<br/>+ Retry Logic<br/>Within Accessible Models]
+        P4[Alternative Model Selection<br/>+ Retry Logic<br/>+ Cache Updates]
     end
     
     P1 --> P2
@@ -254,7 +254,7 @@ graph TB
     P3 --> P4
 ```
 
-#### Phase 1: Enhanced Pre-Authorization & Model Constraint Generation
+#### Phase 1: Authentication & User Context Generation
 
 ```mermaid
 sequenceDiagram
@@ -263,8 +263,6 @@ sequenceDiagram
     participant Kuadrant
     participant Authorino
     participant MaaSAPI as MaaS API
-    participant ModelRegistry as Model Registry
-    participant Cache as Authorization Cache
     
     Client->>Gateway: POST /chat/completions + Service Account Token
     Gateway->>Kuadrant: Apply Policies
@@ -272,39 +270,27 @@ sequenceDiagram
     Authorino->>MaaSAPI: Tier lookup + User Identity
     MaaSAPI-->>Authorino: User tier (premium) + groups
     
-    Note over Authorino,Cache: Bulk Model Authorization Check
-    Authorino->>Cache: Check cached model permissions for user
-    
-    alt Cache Hit
-        Cache-->>Authorino: Cached accessible models list
-    else Cache Miss
-        Authorino->>ModelRegistry: Get all registered models
-        ModelRegistry-->>Authorino: [gpt-4, llama3-70b, llama3-8b, granite-7b]
-        Authorino->>Authorino: Bulk SubjectAccessReview for all models
-        Authorino->>Cache: Store results (300s TTL)
-        Cache-->>Authorino: Accessible: [llama3-70b, llama3-8b]
-    end
-    
-    Authorino-->>Kuadrant: Auth Success + Model Constraints
-    Kuadrant-->>Gateway: Policy Decision (Allow) + Headers:<br/>X-User-ID: user-123<br/>X-Tier: premium<br/>X-Accessible-Models: llama3-70b,llama3-8b
+    Authorino-->>Kuadrant: Auth Success + User Context
+    Kuadrant-->>Gateway: Policy Decision (Allow) + Headers:<br/>X-User-ID: user-123<br/>X-Tier: premium<br/>X-Groups: tier-premium-users,specialists
 ```
 
 **Benefits**: 
-- ✅ **Eliminates Authorization Failures**: vSR only selects from pre-authorized models
-- ✅ **Bulk Authorization Efficiency**: Single authorization check for all models  
-- ✅ **Intelligent Caching**: 300s TTL prevents repeated authorization overhead
-- ✅ **Standard MaaS Flow**: Maintains existing security and authentication patterns
+- ✅ **Simplified RHCL Flow**: No changes to existing Authorino/Limitador logic
+- ✅ **Standard MaaS Authentication**: Maintains existing security and authentication patterns
+- ✅ **User Context Injection**: Provides necessary headers for downstream vSR processing
+- ✅ **Minimal Gateway Changes**: Leverages existing policy infrastructure
 
-#### Phase 2: Constrained Semantic Routing with User-Level Intelligence
+#### Phase 2: Intelligent Model Access Decision & Semantic Routing
 
 ```mermaid
 sequenceDiagram
     participant Gateway as maas-default-gateway
     participant vSR as vSR ExtProc Service
+    participant MaaSAPI as MaaS API
     participant Cache as Semantic Cache
     participant Client
     
-    Gateway->>vSR: ExtProc Call with Request Body + Model Constraints<br/>X-User-ID: user-123<br/>X-Tier: premium<br/>X-Accessible-Models: llama3-70b,llama3-8b
+    Gateway->>vSR: ExtProc Call with Request Body + User Context<br/>X-User-ID: user-123<br/>X-Tier: premium<br/>X-Groups: tier-premium-users
     
     vSR->>Cache: Check semantic cache (namespaced by X-User-ID)
     
@@ -319,61 +305,54 @@ sequenceDiagram
             vSR-->>Gateway: HTTP 403 Forbidden (IMMEDIATE TERMINATION)
             Gateway-->>Client: 403 Forbidden - Security Violation
         else Request is Safe (PII Redacted)
+            vSR->>MaaSAPI: GET /api/v1/users/user-123/accessible-models<br/>Query model access with RBAC + rate limits + token availability
+            MaaSAPI->>MaaSAPI: Check user permissions, rate limits, token quotas
+            MaaSAPI-->>vSR: Accessible models with status:<br/>{<br/>"accessible_models": ["llama3-70b", "llama3-8b"],<br/>"rate_limit_status": {<br/>"llama3-70b": {"available": true, "remaining_tokens": 85000},<br/>"llama3-8b": {"available": true, "remaining_tokens": 95000}<br/>}}</br>
+            
             vSR->>vSR: 3. Semantic Classification (ModernBERT)
-            vSR->>vSR: 4. User-Aware Model Selection:<br/>- Parse accessible models: [llama3-70b, llama3-8b]<br/>- Apply tier-based preferences (premium tier)<br/>- Select optimal model from ACCESSIBLE set only
-            vSR->>vSR: 5. Optional: Apply user-level routing policies based on X-User-ID
+            vSR->>vSR: 4. Constrained Model Selection:<br/>- Parse accessible models from MaaS API<br/>- Apply tier-based preferences (premium tier)<br/>- Select optimal model from AVAILABLE set only
             vSR->>Cache: Store classification result (namespaced by user)
-            vSR-->>Gateway: Header Modifications + Redacted Content:<br/>Host: llama3-70b-service<br/>X-MaaS-Model-Selected: llama3-70b<br/>X-Category: mathematics<br/>X-Confidence: 0.94<br/>X-VSR-Classification-Time: 45ms<br/>X-VSR-Reasoning-Mode: enabled
+            vSR-->>Gateway: Header Modifications + Redacted Content:<br/>Host: llama3-70b-service<br/>X-MaaS-Model-Selected: llama3-70b<br/>X-Category: mathematics<br/>X-Confidence: 0.94<br/>X-VSR-Classification-Time: 45ms
         end
     end
 ```
 
 **Benefits**: 
-- 🧠 **Constrained Intelligent Routing**: ModernBERT classification with pre-authorized model selection
+- 🧠 **Intelligent Access Decision**: MaaS API provides real-time model access with RBAC + rate limits + tokens
 - 🔒 **Privacy Protection**: PII detection and redaction protects sensitive data  
 - 🛡️ **Security Guard**: Jailbreak detection blocks malicious prompts
 - ⚡ **Performance**: User-namespaced semantic caching prevents data leakage
-- 👤 **User-Level Intelligence**: X-User-ID enables personalized routing policies
-- 📊 **Enhanced Headers**: Comprehensive vSR troubleshooting headers included
-- 🚫 **Authorization Failure Elimination**: Selection constrained to accessible models only
+- 👤 **Centralized Access Logic**: All model access decisions centralized in MaaS API
+- 📊 **Real-time Availability**: Rate limit and token availability checked before routing
+- 🚫 **Authorization Failure Elimination**: vSR only routes to accessible models
 
-#### Phase 3: Streamlined Rate Limiting & Model Execution
+#### Phase 3: Model Execution & Usage Tracking
 
 ```mermaid
 sequenceDiagram
     participant Gateway as maas-default-gateway
-    participant Kuadrant
-    participant Limitador
-    participant RateLimitPolicy
-    participant TokenRateLimitPolicy
     participant KServe as Selected Model
+    participant vSR as vSR ExtProc Service
+    participant MaaSAPI as MaaS API
     participant Client
     
-    Note over Gateway,Client: After vSR model selection (llama3-70b) - Authorization ALREADY VERIFIED
-    Gateway->>Kuadrant: Apply Rate Limiting Policies (Skip Authorization)
-    Kuadrant->>Limitador: Check Rate Limits for Selected Model
-    Limitador->>RateLimitPolicy: Apply Request Rate Limits (tier: premium, model: llama3-70b)
-    Limitador->>TokenRateLimitPolicy: Apply Token Rate Limits (tier: premium)
-    RateLimitPolicy-->>Limitador: Request Rate Status
-    TokenRateLimitPolicy-->>Limitador: Token Rate Status
+    Note over Gateway,Client: After vSR model selection (llama3-70b) - Access ALREADY VERIFIED
+    Gateway->>KServe: Forward to Selected Model (llama3-70b)
+    KServe->>KServe: Process Request & Generate Response
+    KServe-->>Gateway: Model Response + Usage Metadata
+    Gateway-->>Client: Model Response
     
-    alt Rate Limits OK
-        Limitador-->>Kuadrant: Rate Limits Passed
-        Kuadrant-->>Gateway: Policy Decision (Allow)
-        Gateway->>KServe: Forward to Pre-Authorized Model
-        KServe-->>Client: Model Response
-    else Rate Limit Exceeded
-        Limitador-->>Kuadrant: Rate Limit Exceeded
-        Kuadrant-->>Gateway: Policy Decision (Deny)
-        Note over Gateway: Proceed to Phase 4 (Intelligent Fallback)
-    end
+    Note over vSR,MaaSAPI: Async Usage Tracking
+    vSR->>MaaSAPI: POST /api/v1/users/user-123/usage<br/>Update token consumption:<br/>{<br/>"model": "llama3-70b",<br/>"tokens_used": 1500,<br/>"request_timestamp": "2026-01-22T10:30:00Z"<br/>}
+    MaaSAPI->>MaaSAPI: Update user quotas & invalidate relevant cache entries
+    MaaSAPI-->>vSR: Usage recorded successfully
 ```
 
 **Benefits**: 
-- ⚡ **Streamlined Flow**: No authorization check needed (pre-verified in Phase 1)
-- 🎯 **Model-Specific Rate Limits**: Applies limits based on selected model cost/complexity
-- 🔐 **Maintained Security**: Authorization already verified, no security compromise
-- 📊 **Intelligent Metrics**: Rate limiting aware of actual model being used
+- ⚡ **Streamlined Execution**: Direct model execution with pre-verified access
+- 📊 **Smart Cache Updates**: Real-time quota updates invalidate stale cache entries  
+- 🔄 **Async Usage Tracking**: Non-blocking usage recording for performance
+- 💰 **Accurate Billing**: Token consumption tracked per model and user
 
 #### Phase 4: Intelligent Fallback Logic (Conditional)
 
@@ -381,40 +360,36 @@ sequenceDiagram
 sequenceDiagram
     participant Gateway as maas-default-gateway
     participant vSR as vSR ExtProc
-    participant Limitador
+    participant MaaSAPI as MaaS API
     participant Client
     
-    Note over Gateway,Client: After rate limit exceeded in Phase 3 (llama3-70b blocked)
-    Gateway->>Gateway: Check if already in fallback mode
+    Note over Gateway,Client: After model execution fails (llama3-70b quota exceeded during execution)
+    Gateway->>vSR: Request fallback routing<br/>X-Original-Model: llama3-70b<br/>X-Failure-Reason: quota_exceeded
     
-    alt Already in Fallback
-        Gateway-->>Client: 429 Too Many Requests + Retry After<br/>X-RateLimit-Reset-After: 60<br/>OpenAI Compatible Error Format
-    else Not in Fallback Yet
-        Gateway->>vSR: Request fallback from accessible models<br/>X-Original-Model: llama3-70b<br/>X-Accessible-Models: llama3-70b,llama3-8b<br/>X-Rate-Limited-Models: llama3-70b
+    vSR->>MaaSAPI: GET /api/v1/users/user-123/accessible-models<br/>Refresh model availability after quota consumption
+    MaaSAPI->>MaaSAPI: Re-check quotas after recent consumption
+    MaaSAPI-->>vSR: Updated accessible models:<br/>{<br/>"accessible_models": ["llama3-8b"],<br/>"rate_limit_status": {<br/>"llama3-70b": {"available": false, "remaining_tokens": 0},<br/>"llama3-8b": {"available": true, "remaining_tokens": 95000}<br/>}}
+    
+    alt Fallback Available
+        vSR->>vSR: Select llama3-8b as fallback based on original classification
+        vSR-->>Gateway: Fallback route + headers<br/>X-Fallback-Applied: true<br/>X-Original-Model: llama3-70b<br/>X-Fallback-Model: llama3-8b<br/>X-Fallback-Reason: quota_exceeded
         
-        vSR->>vSR: Select next best from accessible models<br/>Available: [llama3-8b] (excluding rate-limited)
+        Note over Gateway: Retry execution with fallback model
+        Gateway-->>Client: Fallback Model Response with Headers<br/>X-Model-Executed: llama3-8b<br/>X-Fallback-Applied: true
         
-        alt Fallback Available
-            vSR->>vSR: Select llama3-8b as fallback
-            vSR->>vSR: Inject transparency system prompt
-            vSR-->>Gateway: Fallback route + headers<br/>X-Fallback-Applied: true<br/>X-Original-Model: llama3-70b<br/>X-Fallback-Model: llama3-8b<br/>X-Fallback-Reason: rate_limit_exceeded
-            
-            Note over Gateway: Retry Phase 3 with fallback model
-            Gateway->>Limitador: Check rate limits for llama3-8b
-            Limitador-->>Gateway: Rate limits OK for fallback model
-            Gateway-->>Client: Fallback Model Response with Headers<br/>X-Model-Executed: llama3-8b<br/>X-Fallback-Applied: true
-        else No Accessible Fallback
-            Gateway-->>Client: 429 Too Many Requests<br/>All accessible models rate-limited
-        end
+        Note over vSR,MaaSAPI: Update cache with fallback usage
+        vSR->>MaaSAPI: POST /api/v1/users/user-123/usage (fallback model usage)
+    else No Accessible Fallback
+        Gateway-->>Client: 429 Too Many Requests<br/>All accessible models quota exceeded<br/>X-RateLimit-Reset-After: 3600
     end
 ```
 
 **Benefits**: 
-- 🔄 **Intelligent Constrained Fallback**: Selects from pre-authorized accessible models only
-- 📊 **OpenAI-Compatible Responses**: Follows OpenAI rate limiting response format
-- 💰 **Cost Optimization**: Automatically downgrades to cheaper accessible models
+- 🔄 **Real-time Fallback**: Fresh quota checks ensure accurate fallback decisions
+- 📊 **OpenAI-Compatible Responses**: Follows OpenAI rate limiting response format  
+- 💰 **Cost Optimization**: Automatically downgrades to cheaper available models
 - 🎯 **Improved UX**: Maintains service availability under quota pressure
-- 🚫 **No Authorization Failures**: Fallback selection still respects user permissions
+- 🚫 **Access-Aware Fallback**: Fallback selection respects user permissions and quotas
 
 ### 2.2 Request Flow Headers
 
@@ -425,15 +400,14 @@ Authorization: Bearer sa-token-xyz
 Content-Type: application/json
 {"messages": [{"role": "user", "content": "Solve this calculus problem..."}]}
 
-# Phase 1: After Enhanced Pre-Authorization (Model Constraints Generated)
+# Phase 1: After Authentication & User Context Injection
 POST /chat/completions
 Authorization: Bearer sa-token-xyz
 X-User-ID: math-user-123                    # ✅ User identification
 X-Tier: premium                             # ✅ User subscription tier
 X-Groups: "tier-premium-users,specialists"  # ✅ Kubernetes groups for RBAC
-X-Accessible-Models: llama3-70b,llama3-8b  # 🆕 Pre-authorized models only
 
-# Phase 2: After vSR Constrained Semantic Routing
+# Phase 2: After vSR → MaaS API Model Access Decision & Semantic Routing
 POST /models/llama3-70b/chat/completions    # 🆕 Path rewritten for model routing
 Authorization: Bearer sa-token-xyz
 X-User-ID: math-user-123                    # ✅ Passed through from Phase 1
@@ -442,15 +416,15 @@ X-MaaS-Model-Selected: llama3-70b          # 🆕 For billing tracking
 X-Category: mathematics                     # 🆕 Semantic classification
 X-Confidence: 0.94                         # 🆕 vSR classification confidence
 X-VSR-Classification-Time: 45ms            # 🆕 vSR performance metrics
-X-VSR-Reasoning-Mode: enabled              # 🆕 Reasoning mode status
+X-MaaS-Access-Check-Time: 12ms             # 🆕 MaaS API access check duration
 
-# Phase 3: Successful Model Execution (Rate Limits Passed)
+# Phase 3: Successful Model Execution
 HTTP/1.1 200 OK
 Content-Type: application/json
 X-Model-Executed: llama3-70b               # 🆕 Actually executed model
-X-Authorization-Cached: true               # 🆕 Pre-authorization used
+X-MaaS-Quota-Remaining: 83500              # 🆕 Remaining tokens after execution
 X-Request-Duration: 2.5s
-X-VSR-Reasoning-Mode: enabled              # 🆕 Reasoning mode applied
+X-Tokens-Used: 1500                        # 🆕 Token consumption
 {"choices": [{"message": {"content": "The derivative of x² is 2x..."}}]}
 ```
 
@@ -463,50 +437,146 @@ The implementation leverages extensive existing production-ready infrastructure:
 #### MaaS Platform (Production Ready)
 - ✅ **MaaS API**: Go-based API with token management (ephemeral + named API keys)
 - ✅ **Storage Options**: In-memory, disk, and external database storage modes
-- ✅ **Gateway Policies**: AuthPolicy with tier resolution, caching (300s TTL), and RBAC
-- ✅ **Rate Limiting**: Tier-based rate limiting policies (free/premium/enterprise)
+- ✅ **Gateway Policies**: AuthPolicy with tier resolution and RBAC integration
+- ✅ **Model Discovery**: KServe InferenceService and LLMInferenceService discovery
+- ✅ **User Management**: Tier-based access control (free/premium/enterprise)
 
 #### vSR Platform (Production Ready)  
 - ✅ **ExtProc Implementation**: Envoy External Processor gRPC service (port 50051)
 - ✅ **vSR CLI**: Comprehensive deployment and management CLI
 - ✅ **Kubernetes Deployment**: Complete K8s deployment manifests and Helm charts
 - ✅ **Multi-Environment Support**: Local, Docker, Kubernetes deployment support
+- ✅ **Security Features**: PII detection and jailbreak prevention capabilities
+
+#### RHCL Platform (No Changes Required)
+- ✅ **Authorino**: Service Account token validation with existing MaaS API tier lookup
+- ✅ **Limitador**: Existing rate limiting infrastructure (unchanged)
+- ✅ **Kuadrant**: Policy orchestration and header injection (unchanged)
 
 ### 3.2 Implementation Requirements
 
-#### RHCL (Red Hat Connectivity Link) - Authorino/Limitador
-- ✅ **Token Validation**: Kubernetes `TokenReview` for Service Account tokens
-- ✅ **Tier Resolution**: HTTP metadata lookup to MaaS API for user tier mapping
-- ✅ **Context Injection**: `X-User-ID`, `X-Tier`, `X-Groups` injected for downstream consumption
-- 🆕 **Bulk Authorization**: Bulk SubjectAccessReview for all registered models in Phase 1
-- 🆕 **Authorization Caching Enhancement**: Extend existing cache for bulk authorization results with 300s TTL
-- 🆕 **Model Constraints Injection**: `X-Accessible-Models` headers
-- ✅ **Limitador Integration**: Enforce limits based on `X-MaaS-Model-Selected` (from vSR) and `X-User-ID`
+#### RHCL (Red Hat Connectivity Link) - No Changes Required
+- ✅ **Token Validation**: Existing Kubernetes `TokenReview` for Service Account tokens (unchanged)
+- ✅ **Tier Resolution**: Existing HTTP metadata lookup to MaaS API for user tier mapping (unchanged)
+- ✅ **Context Injection**: Existing `X-User-ID`, `X-Tier`, `X-Groups` injection (unchanged)
+- ✅ **Limitador Integration**: Existing rate limiting infrastructure (unchanged)
 
-#### MaaS (Models-as-a-Service) & Gateway
-- ✅ **MaaS API**: Production-ready Go API with token management and tier resolution
-- ✅ **Storage Configuration**: In-memory, disk, and external database options
-- ✅ **Token Management**: Ephemeral tokens and named API keys with expiration
-- ✅ **Policy Infrastructure**: AuthPolicy, RateLimitPolicy with tier-based enforcement
-- 🆕 **Enhanced Model Registry**: Extend existing LLMInferenceService discovery to support external models
-- 🆕 **Bulk Authorization API**: New endpoint for bulk model authorization checks
-- 🆕 **Intelligent Fallback Handler**: Envoy filter to handle constrained fallback logic
-- 🆕 **Enhanced Billing Ingestion**: Update collector to handle fallback and reasoning mode billing
+#### MaaS (Models-as-a-Service) - Centralized Model Access Logic
+- ✅ **MaaS API**: Existing Go API with token management and tier resolution
+- ✅ **Storage Configuration**: Existing in-memory, disk, and external database options
+- ✅ **Token Management**: Existing ephemeral tokens and named API keys with expiration
+- ✅ **Policy Infrastructure**: Existing AuthPolicy with tier-based enforcement
+- 🆕 **Model Access Decision Engine**: New centralized engine combining RBAC + rate limits + token quotas
+- 🆕 **Smart Access Cache**: New caching layer with intelligent quota-based invalidation
+- 🆕 **Model Accessibility API**: New endpoint `/api/v1/users/{userId}/accessible-models`
+- 🆕 **Usage Tracking API**: New endpoint `/api/v1/users/{userId}/usage` for real-time quota updates
+- 🆕 **External Model Registry**: Enhanced model discovery beyond KServe (parallel work)
+- 🆕 **Enhanced Billing Integration**: Updated billing collector for vSR usage patterns
 
-#### vSR (vLLM Semantic Router) - Enhanced Modular Architecture
+#### vSR (vLLM Semantic Router) - MaaS API Integration
 - ✅ **ExtProc Service**: Existing Envoy External Processor implementation (port 50051)
-- ✅ **vSR CLI**: Production-ready deployment and management CLI
-- ✅ **Kubernetes Infrastructure**: Complete deployment manifests and operational tooling
-- ✅ **Configuration System**: YAML-based configuration with validation
-- 🆕 **Security Plugin Module**: Enhance existing PII detection and jailbreak prevention
-- 🆕 **Semantic Plugin Module**: Enhance existing classification with model constraint parsing  
-- 🆕 **Orchestration Plugin Module**: New optional plugin for tool selection and context management
-- 🆕 **Reasoning Plugin Module**: New plugin for dynamic reasoning mode control
-- 🆕 **External Integration Layer**: Standardized interfaces for llm-d, Llama Stack, MCP Gateway
+- ✅ **vSR CLI**: Existing deployment and management CLI (unchanged)
+- ✅ **Kubernetes Infrastructure**: Existing deployment manifests (unchanged)
+- ✅ **Security Features**: Existing PII detection and jailbreak prevention
+- 🆕 **MaaS API Client**: New HTTP client for model access decisions
 - 🆕 **Multi-Tenant Cache Enhancement**: User-namespaced semantic cache to prevent data leakage
-- 🆕 **Constrained Model Selection**: Parse `X-Accessible-Models` for selection logic
+- 🆕 **Usage Reporting**: New capability to report token consumption back to MaaS API
+- 🆕 **Constrained Model Selection**: Parse MaaS API responses for intelligent routing
 
-### 3.3 Migration Strategy
+### 3.3 External Model Support Requirements (Parallel Work)
+
+The integration requires extending MaaS to support external (non-KServe) models. This work can be developed in parallel to the core vSR integration:
+
+#### MaaS API Components Requiring External Model Support:
+
+1. **Model Discovery Service** (`internal/models/discovery.go`):
+   - **Current**: Only discovers KServe `InferenceService` and `LLMInferenceService`
+   - **Required**: Interface for external model registries
+   - **Implementation**: Plugin-based discovery for vLLM, Ollama, external HTTP endpoints
+
+2. **Model Registry** (`internal/models/registry.go` - new file):
+   - **Required**: Unified model registry supporting:
+     - KServe models (existing)
+     - External HTTP endpoints with metadata
+     - Model capabilities (pricing, rate limits, categories)
+   - **API Endpoints**:
+     ```
+     POST /api/v1/models/register    # Register external model
+     GET /api/v1/models             # List all models (KServe + external)
+     PUT /api/v1/models/{id}        # Update model metadata
+     DELETE /api/v1/models/{id}     # Remove external model
+     ```
+
+3. **Authorization Engine** (`internal/auth/model_access.go` - new file):
+   - **Current**: RBAC only covers KServe resources (`InferenceService`, `LLMInferenceService`)
+   - **Required**: RBAC rules for external models
+   - **Implementation**: Custom resource types or extended RBAC mappings
+
+4. **Gateway Routing** (`deployment/base/gateway/envoy-config.yaml`):
+   - **Current**: Static KServe service routing
+   - **Required**: Dynamic upstream configuration for external models
+   - **Implementation**: Envoy cluster discovery integration
+
+#### vSR Components Requiring External Model Support:
+
+5. **Model Metadata Interface** (`pkg/models/metadata.go` - new file):
+   - **Required**: Standard interface for model capabilities across providers
+   - **Purpose**: Enable vSR routing decisions based on model characteristics
+   - **Schema**:
+     ```go
+     type ModelMetadata struct {
+         ID           string            `json:"id"`
+         Provider     string            `json:"provider"`     // "kserve", "vllm", "ollama"
+         Endpoint     string            `json:"endpoint"`
+         Categories   []string          `json:"categories"`   // "math", "coding", "creative"
+         Pricing      PricingInfo       `json:"pricing"`
+         RateLimits   RateLimitInfo     `json:"rate_limits"`
+         Capabilities ModelCapabilities `json:"capabilities"`
+     }
+     ```
+
+6. **External Model Client** (`pkg/clients/external_models.go` - new file):
+   - **Required**: HTTP client adapters for different external model providers
+   - **Purpose**: Normalize API calls across different model providers
+
+#### Specific File Locations for External Model Support:
+
+```
+maas/maas-api/
+├── internal/
+│   ├── models/
+│   │   ├── discovery.go           # ← Extend for external discovery
+│   │   ├── registry.go            # ← New unified registry
+│   │   └── external_providers.go  # ← New provider interfaces
+│   ├── auth/
+│   │   └── model_access.go        # ← New RBAC for external models
+│   └── handlers/
+│       └── external_models.go     # ← New API handlers
+├── pkg/
+│   ├── models/
+│   │   └── metadata.go            # ← New model metadata interface
+│   └── clients/
+│       └── external_models.go     # ← New external model clients
+└── deployment/
+    └── base/gateway/
+        └── dynamic-config.yaml    # ← New dynamic routing config
+
+vsr/src/semantic-router/
+├── pkg/
+│   ├── models/
+│   │   ├── metadata.go            # ← Model metadata interface
+│   │   └── external_adapter.go    # ← External model adapters
+│   └── clients/
+│       └── maas_client.go         # ← Enhanced MaaS API client
+```
+
+#### Parallel Development Opportunities:
+- **External Model Registry**: Independent of vSR integration timeline
+- **Dynamic Gateway Configuration**: Can be developed separately
+- **Model Metadata Standards**: Can be defined as independent specification
+- **Provider Client Libraries**: Modular development per provider
+
+### 3.4 Migration Strategy
 
 ```mermaid
 graph TB
@@ -527,24 +597,24 @@ graph TB
 ```
 
 #### Phase 1: Foundation (Immediate - 0-3 months)
-1. **Implement enhanced hybrid architecture** using existing infrastructure
-2. **Add bulk authorization API** to MaaS for model constraint generation
-3. **Enhance vSR ExtProc** with model constraint parsing and user-level caching
-4. **Configure integration policies** and test end-to-end flow
+1. **Implement MaaS API model access decision engine** with centralized RBAC + quota logic
+2. **Add new MaaS API endpoints** for model accessibility and usage tracking
+3. **Enhance vSR ExtProc** with MaaS API client and user-level caching
+4. **Test end-to-end integration** with existing RHCL infrastructure (no changes required)
 
-#### Phase 2: Enhancement (Short-term - 3-6 months)
-1. **Develop plugin architecture** for modular vSR composition
-2. **Implement external integration layer** for future ecosystem components
-3. **Add advanced features**: reasoning mode control, enhanced fallback logic
+#### Phase 2: Enhancement (Short-term - 3-6 months)  
+1. **Develop smart caching layer** with quota-based invalidation in MaaS API
+2. **Implement intelligent fallback logic** with real-time quota checks
+3. **Add external model registry** as parallel work stream
 4. **Optimize performance** and add comprehensive monitoring
 
 #### Phase 3: Ecosystem (Long-term - 6+ months)
-1. **Integrate with llm-d** for model lifecycle management
-2. **Integrate with Llama Stack** for standardized model APIs
-3. **Integrate with MCP Gateway** for tool integration platform
-4. **Full production optimization** and advanced enterprise features
+1. **Complete external model integration** with dynamic gateway configuration
+2. **Integrate with llm-d** for advanced model lifecycle management  
+3. **Integrate with Llama Stack** for standardized model APIs
+4. **Full production optimization** and enterprise-grade features
 
-### 3.4 CLI Integration and Management
+### 3.5 CLI Integration and Management
 
 The integration leverages the existing comprehensive `vsr` CLI tool for deployment and management:
 
@@ -561,17 +631,17 @@ vsr config validate --integration-mode=maas
 vsr health --check-maas-connectivity
 vsr status --show-extproc-metrics
 
-# Model management for integration
-vsr model list --compatible-with-maas
-vsr model validate --integration-requirements
+# Test MaaS API integration
+vsr debug --test-maas-api-access
+vsr debug --check-user-quotas --user-id=test-user
 
-# Debug integration issues
-vsr debug --integration-mode=maas \
-  --check-authorization-cache \
-  --check-fallback-logic
+# Model management for integration
+vsr model list --show-maas-metadata
+vsr model validate --check-maas-accessibility
 
 # View integration-specific logs
 vsr logs --component=extproc --filter="maas-integration"
+vsr logs --component=maas-client --follow
 ```
 
 **Integration Configuration:**
@@ -581,8 +651,11 @@ integration:
   maas:
     enabled: true
     api_endpoint: "http://maas-api.maas-api.svc.cluster.local:8080"
-    authorization_cache_ttl: "300s"
-    bulk_auth_enabled: true
+    endpoints:
+      accessible_models: "/api/v1/users/{userId}/accessible-models"
+      usage_tracking: "/api/v1/users/{userId}/usage"
+    timeout: "5s"
+    retry_attempts: 3
     
   extproc:
     enabled: true
@@ -590,14 +663,19 @@ integration:
     mode: "maas_integration"
     features:
       user_level_caching: true
-      model_constraints: true
+      maas_api_integration: true
+      usage_reporting: true
       fallback_logic: true
       
   plugins:
     security: true
     semantic: true  
     orchestration: false  # Disable if MCP Gateway handles this
-    reasoning: true
+    reasoning: false      # Can be enabled based on requirements
+    
+  cache:
+    user_namespaced: true
+    invalidation_on_usage: true
 ```
 
 ## 4. Error Handling and OpenAI Compatibility
@@ -617,13 +695,13 @@ The integration provides OpenAI-compatible error responses for seamless applicat
 }
 ```
 
-**Rate Limit with Intelligent Fallback:**
+**Quota Exceeded with Intelligent Fallback:**
 ```json
 {
   "error": {
-    "message": "Rate limit exceeded for model llama3-70b. Using fallback model llama3-8b.",
-    "type": "rate_limit_error",
-    "code": "model_rate_limit",
+    "message": "Token quota exceeded for model llama3-70b. Using fallback model llama3-8b.",
+    "type": "quota_exceeded_error",
+    "code": "model_quota_exceeded",
     "param": "model",
     "fallback_applied": true,
     "fallback_model": "llama3-8b",
@@ -632,14 +710,14 @@ The integration provides OpenAI-compatible error responses for seamless applicat
 }
 ```
 
-**All Models Rate Limited:**
+**All Models Quota Exceeded:**
 ```json
 {
   "error": {
-    "message": "All accessible models are currently rate limited. Please try again later.",
-    "type": "rate_limit_error", 
-    "code": "all_models_rate_limited",
-    "retry_after": 60
+    "message": "Token quota exceeded for all accessible models. Please try again later.",
+    "type": "quota_exceeded_error", 
+    "code": "all_models_quota_exceeded",
+    "retry_after": 3600
   }
 }
 ```
@@ -655,16 +733,17 @@ The integration provides OpenAI-compatible error responses for seamless applicat
 }
 ```
 
-### 4.2 OpenAI-Compatible Rate Limiting Headers
+### 4.2 OpenAI-Compatible Quota Headers
 
 ```http
 X-RateLimit-Limit-Requests: 20        # Request limit for user/tier
-X-RateLimit-Limit-Tokens: 100000      # Token limit for user/tier  
+X-RateLimit-Limit-Tokens: 100000      # Token quota limit for user/tier  
 X-RateLimit-Remaining-Requests: 15    # Remaining requests in period
-X-RateLimit-Remaining-Tokens: 85000   # Remaining tokens in period
+X-RateLimit-Remaining-Tokens: 85000   # Remaining token quota
 X-RateLimit-Reset-Requests: 1674083820 # When request limit resets
-X-RateLimit-Reset-Tokens: 1674083820  # When token limit resets
-X-RateLimit-Reset-After: 60           # Seconds until limit reset
+X-RateLimit-Reset-Tokens: 1674083820  # When token quota resets
+X-RateLimit-Reset-After: 60           # Seconds until quota reset
+X-MaaS-Quota-Source: maas-api         # Source of quota information
 ```
 
 ## 5. Deployment Configurations
@@ -771,13 +850,14 @@ optimization:
 - ✅ **Scalability**: Enterprise-grade foundation already established
 
 ### 6.2 Integration Benefits
-- 🧠 **Intelligent Routing**: Semantic classification directs requests to optimal models
-- 🚫 **Authorization Failure Elimination**: Pre-authorization ensures vSR only selects accessible models
-- ⚡ **Performance Optimization**: Single request parse, intelligent caching, bulk authorization
+- 🧠 **Intelligent Routing**: Semantic classification directs requests to optimal models based on real-time availability
+- 🚫 **Authorization Failure Elimination**: MaaS API centralized logic ensures vSR only routes to accessible models
+- ⚡ **Performance Optimization**: Single request parse, user-namespaced caching, direct MaaS API integration
 - 🔐 **Enterprise Security**: PII detection, jailbreak prevention, comprehensive audit trails
-- 💰 **Cost Optimization**: Intelligent fallback, reasoning mode control, transparent pricing
-- 🔧 **Modular Architecture**: Plugin-based design supports future ecosystem integration
+- 💰 **Smart Cost Management**: Real-time quota tracking with intelligent fallback to cheaper models
+- 🔧 **Simplified RHCL**: No changes required to existing Authorino/Limitador infrastructure
 - 📊 **Operational Excellence**: Unified monitoring, CLI management, OpenAI compatibility
+- 🎯 **Centralized Model Logic**: All model access decisions in MaaS API for consistency and maintainability
 
 ### 6.3 Future Extensibility
 - 🔌 **Ecosystem Ready**: Prepared for llm-d, Llama Stack, MCP Gateway integration
@@ -787,8 +867,14 @@ optimization:
 
 ## 7. Conclusion
 
-This design proposal presents a comprehensive integration strategy that combines the best of both MaaS and vSR platforms while addressing key architectural concerns around modularity, performance, and security. The Enhanced Hybrid Authorization-First Architecture eliminates authorization bottlenecks while maintaining enterprise-grade security and enabling intelligent routing.
+This design proposal presents a comprehensive integration strategy that combines the best of both MaaS and vSR platforms while maintaining architectural simplicity and operational efficiency. The refined architecture centralizes all model access logic in the MaaS API, eliminates unnecessary RHCL changes, and enables intelligent semantic routing with real-time quota awareness.
 
-The solution leverages extensive existing infrastructure, reducing implementation risk and time-to-market while preparing for future ecosystem evolution. With over 60% of the required infrastructure already production-ready, this approach delivers immediate value while establishing a foundation for long-term growth and integration with emerging ecosystem components.
+**Key Architectural Advantages:**
+- **Simplified Integration**: No changes required to existing RHCL (Authorino/Limitador) infrastructure
+- **Centralized Logic**: All model access decisions consolidated in MaaS API for consistency and maintainability
+- **Real-time Intelligence**: vSR routing decisions based on live quota and availability data
+- **Performance Optimized**: Single request parse with user-namespaced caching and direct API integration
 
-The modular composition strategy addresses concerns about monolithic architecture while maintaining performance benefits, positioning the integrated platform for success in the evolving LLM infrastructure landscape.
+The solution leverages extensive existing infrastructure, reducing implementation risk and time-to-market while preparing for future ecosystem evolution. With over 60% of the required infrastructure already production-ready and a clear separation of concerns, this approach delivers immediate value while establishing a robust foundation for long-term growth.
+
+The centralized model access approach positions the integrated platform for success in the evolving LLM infrastructure landscape, providing a clean foundation for external model support and ecosystem integrations.
