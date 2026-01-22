@@ -266,6 +266,11 @@ graph TB
 
 #### Phase 1: Authentication & User Context Generation ✅ EXISTING
 
+**Status: EXISTING - No Changes Required**
+- ✅ **Standard RHCL Flow**: Existing Authorino/Limitador logic unchanged
+- ✅ **MaaS Authentication**: Current security and authentication patterns maintained
+- ✅ **User Context Available**: Headers available for downstream processing
+
 ```mermaid
 sequenceDiagram
     participant Client
@@ -284,12 +289,14 @@ sequenceDiagram
     Kuadrant-->>Gateway: Policy Decision (Allow) + Headers:<br/>X-User-ID: user-123<br/>X-Tier: premium<br/>X-Groups: tier-premium-users,specialists
 ```
 
-**Status: EXISTING - No Changes Required**
-- ✅ **Standard RHCL Flow**: Existing Authorino/Limitador logic unchanged
-- ✅ **MaaS Authentication**: Current security and authentication patterns maintained
-- ✅ **User Context Available**: Headers available for downstream processing
-
 #### Phase 2: Model Access Decision & Header Injection 🆕 NEW
+
+**Status: NEW Implementation Required**
+- 🆕 **MaaS API Endpoint**: `/api/v1/users/{userId}/accessible-models` 
+- 🆕 **RHCL Integration**: MaaS API calls to Kubernetes API (RBAC) and Limitador (rate limits)
+- 🆕 **Smart Caching**: Cache with token-aware TTL and quota tracking
+- 🆕 **Header Injection**: Gateway logic to inject accessible models into request headers
+- 🆕 **Combined Access Logic**: RBAC + rate limits + token quotas in single decision
 
 ```mermaid
 sequenceDiagram
@@ -329,14 +336,23 @@ sequenceDiagram
     Gateway->>Gateway: Inject accessible models into headers:<br/>X-Accessible-Models: llama3-70b,llama3-8b<br/>X-Model-Quotas: llama3-70b:85000,llama3-8b:95000
 ```
 
-**Status: NEW Implementation Required**
-- 🆕 **MaaS API Endpoint**: `/api/v1/users/{userId}/accessible-models` 
-- 🆕 **RHCL Integration**: MaaS API calls to Kubernetes API (RBAC) and Limitador (rate limits)
-- 🆕 **Smart Caching**: Cache with token-aware TTL and quota tracking
-- 🆕 **Header Injection**: Gateway logic to inject accessible models into request headers
-- 🆕 **Combined Access Logic**: RBAC + rate limits + token quotas in single decision
-
 #### Phase 3: Constrained Semantic Routing 🆕 ENHANCED
+
+**Status: ENHANCED - vSR ExtProc Enhancements Required**
+- 🆕 **Header-Based Constraints**: Parse X-Accessible-Models for routing constraints
+- 🆕 **Quota-Aware Selection**: Consider token quotas in model selection logic
+- ✅ **Security Features**: Existing PII detection and jailbreak prevention (unchanged)
+- ✅ **Semantic Classification**: Existing ModernBERT classification (unchanged)
+- 🆕 **Multi-Tenant Security**: User-isolated semantic cache to prevent cross-user data exposure in shared MaaS environment
+
+> **Why User-Namespaced Cache is Required for MaaS Integration:**
+> 
+> vSR's existing semantic cache is designed for single-user deployments where global caching is safe. However, MaaS is a **multi-tenant platform** where multiple users share the same vSR instance. Without user namespacing:
+> - User A could receive cached routing decisions from User B's similar prompts
+> - Semantic similarity could leak one user's prompt patterns to another user
+> - This violates enterprise security, compliance (GDPR), and data isolation requirements
+> 
+> The solution: Cache keys must include user ID (`user-123:hash(prompt)`) to ensure complete user isolation in the shared environment.
 
 ```mermaid
 sequenceDiagram
@@ -369,14 +385,12 @@ sequenceDiagram
     end
 ```
 
-**Status: ENHANCED - vSR ExtProc Enhancements Required**
-- 🆕 **Header-Based Constraints**: Parse X-Accessible-Models for routing constraints
-- 🆕 **Quota-Aware Selection**: Consider token quotas in model selection logic
-- ✅ **Security Features**: Existing PII detection and jailbreak prevention (unchanged)
-- ✅ **Semantic Classification**: Existing ModernBERT classification (unchanged)
-- 🆕 **User-Namespaced Cache**: Enhanced caching to prevent data leakage
-
 #### Phase 4: Model Execution ✅ EXISTING
+
+**Status: EXISTING - KServe Execution Unchanged**
+- ✅ **Model Serving**: Existing KServe infrastructure handles model execution
+- ✅ **Response Generation**: Standard model response processing
+- ✅ **Usage Metadata**: Token consumption tracking available
 
 ```mermaid
 sequenceDiagram
@@ -391,12 +405,13 @@ sequenceDiagram
     Gateway-->>Client: Model Response with Headers:<br/>X-Model-Executed: llama3-70b<br/>X-Tokens-Used: 1500
 ```
 
-**Status: EXISTING - KServe Execution Unchanged**
-- ✅ **Model Serving**: Existing KServe infrastructure handles model execution
-- ✅ **Response Generation**: Standard model response processing
-- ✅ **Usage Metadata**: Token consumption tracking available
-
 #### Phase 5: Smart Cache Updates 🆕 NEW
+
+**Status: NEW - Smart Cache Management Required**
+- 🆕 **Usage Tracking API**: New endpoint for real-time token consumption reporting
+- 🆕 **Smart Cache Invalidation**: Intelligent cache updates based on quota consumption  
+- 🆕 **Dynamic Availability**: Real-time model availability based on quota exhaustion
+- 🆕 **Consumption-Based TTL**: Cache TTL adjusted based on user consumption patterns
 
 ```mermaid
 sequenceDiagram
@@ -414,12 +429,6 @@ sequenceDiagram
     Cache-->>MaaSAPI: Cache updated with new availability status
     MaaSAPI-->>Gateway: Usage recorded & cache updated
 ```
-
-**Status: NEW - Smart Cache Management Required**
-- 🆕 **Usage Tracking API**: New endpoint for real-time token consumption reporting
-- 🆕 **Smart Cache Invalidation**: Intelligent cache updates based on quota consumption  
-- 🆕 **Dynamic Availability**: Real-time model availability based on quota exhaustion
-- 🆕 **Consumption-Based TTL**: Cache TTL adjusted based on user consumption patterns
 
 
 ### 2.2 Request Flow Headers
