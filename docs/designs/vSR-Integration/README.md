@@ -296,30 +296,45 @@ sequenceDiagram
     participant Gateway as maas-default-gateway
     participant MaaSAPI as MaaS API
     participant Cache as Model Access Cache
+    participant Authorino
+    participant Limitador
+    participant K8sAPI as Kubernetes API
     
-    Note over Gateway,Cache: After Phase 1 - User context available in headers
-    Gateway->>MaaSAPI: GET /api/v1/users/user-123/accessible-models<br/>Query: RBAC + Token Availability + Rate Limits
+    Note over Gateway,K8sAPI: After Phase 1 - User context available in headers
+    Gateway->>MaaSAPI: GET /api/v1/users/user-123/accessible-models<br/>Headers: X-User-ID, X-Tier, X-Groups
     
     MaaSAPI->>Cache: Check cached model access for user-123
     
     alt Cache Hit & Still Valid
         Cache-->>MaaSAPI: Cached accessible models with token status
-    else Cache Miss or Stale
-        MaaSAPI->>MaaSAPI: 1. Check RBAC permissions for all models<br/>2. Check current token quotas per model<br/>3. Check rate limit status per model
-        MaaSAPI->>Cache: Store results with smart TTL (based on token consumption)
-        Cache-->>MaaSAPI: Fresh accessible models with availability
+    else Cache Miss or Stale - Get Fresh Data
+        MaaSAPI->>MaaSAPI: Discover all available models (KServe + external)
+        
+        Note over MaaSAPI,K8sAPI: Check RBAC permissions for each model
+        MaaSAPI->>K8sAPI: SubjectAccessReview calls for each model<br/>User: user-123, Groups: tier-premium-users<br/>Resources: llama3-70b, llama3-8b, granite-7b...
+        K8sAPI-->>MaaSAPI: RBAC Results: [llama3-70b: allowed, llama3-8b: allowed, granite-7b: denied]
+        
+        Note over MaaSAPI,Limitador: Check current rate limits and quotas
+        MaaSAPI->>Limitador: Query current rate limits for user-123<br/>Models: llama3-70b, llama3-8b
+        Limitador-->>MaaSAPI: Rate limit status:<br/>llama3-70b: 15/20 requests remaining<br/>llama3-8b: 18/20 requests remaining
+        
+        MaaSAPI->>MaaSAPI: Check internal token quotas:<br/>llama3-70b: 85000 tokens remaining<br/>llama3-8b: 95000 tokens remaining
+        
+        MaaSAPI->>Cache: Store combined results with smart TTL
+        Cache-->>MaaSAPI: Fresh accessible models: [llama3-70b, llama3-8b]
     end
     
-    MaaSAPI-->>Gateway: Response:<br/>{<br/>"accessible_models": ["llama3-70b", "llama3-8b"],<br/>"model_status": {<br/>"llama3-70b": {"available": true, "remaining_tokens": 85000},<br/>"llama3-8b": {"available": true, "remaining_tokens": 95000}<br/>}<br/>}
+    MaaSAPI-->>Gateway: Response:<br/>{<br/>"accessible_models": ["llama3-70b", "llama3-8b"],<br/>"model_status": {<br/>"llama3-70b": {"available": true, "remaining_tokens": 85000, "rate_limit_ok": true},<br/>"llama3-8b": {"available": true, "remaining_tokens": 95000, "rate_limit_ok": true}<br/>}<br/>}
     
     Gateway->>Gateway: Inject accessible models into headers:<br/>X-Accessible-Models: llama3-70b,llama3-8b<br/>X-Model-Quotas: llama3-70b:85000,llama3-8b:95000
 ```
 
 **Status: NEW Implementation Required**
 - 🆕 **MaaS API Endpoint**: `/api/v1/users/{userId}/accessible-models` 
+- 🆕 **RHCL Integration**: MaaS API calls to Kubernetes API (RBAC) and Limitador (rate limits)
 - 🆕 **Smart Caching**: Cache with token-aware TTL and quota tracking
-- 🆕 **Header Injection**: Inject accessible models list into request headers
-- 🆕 **Real-time Availability**: Live RBAC + quota + rate limit checking
+- 🆕 **Header Injection**: Gateway logic to inject accessible models into request headers
+- 🆕 **Combined Access Logic**: RBAC + rate limits + token quotas in single decision
 
 #### Phase 3: Constrained Semantic Routing 🆕 ENHANCED
 
