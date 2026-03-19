@@ -8,7 +8,7 @@
       
       
       
-        <link rel="canonical" href="https://opendatahub-io.github.io/models-as-a-service/dev/configuration-and-management/group-membership-known-issues/">
+        <link rel="canonical" href="https://opendatahub-io.github.io/models-as-a-service/dev/configuration-and-management/maas-controller-overview/">
       
       
       
@@ -21,7 +21,7 @@
     
     
       
-        <title>Group Membership Known Issues - ODH Models-as-a-Service Documentation</title>
+        <title>MaaS Controller Overview - ODH Models-as-a-Service Documentation</title>
       
     
     
@@ -72,7 +72,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#group-membership-known-issues" class="md-skip">
+        <a href="#maas-controller-overview" class="md-skip">
           Skip to content
         </a>
       
@@ -109,7 +109,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              Group Membership Known Issues
+              MaaS Controller Overview
             
           </span>
         </div>
@@ -1978,135 +1978,112 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#group-membership-changes-during-active-usage" class="md-nav__link">
+  <a href="#1-what-is-the-maas-controller" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Group Membership Changes During Active Usage
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="Group Membership Changes During Active Usage">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#issue-description" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Issue Description
+        1. What Is the MaaS Controller?
       
     </span>
   </a>
   
 </li>
-        
-          <li class="md-nav__item">
-  <a href="#how-group-membership-affects-access" class="md-nav__link">
+      
+        <li class="md-nav__item">
+  <a href="#2-high-level-architecture" class="md-nav__link">
     <span class="md-ellipsis">
       
-        How Group Membership Affects Access
+        2. High-Level Architecture
       
     </span>
   </a>
   
 </li>
-        
-          <li class="md-nav__item">
-  <a href="#side-effects" class="md-nav__link">
+      
+        <li class="md-nav__item">
+  <a href="#3-request-flow-end-to-end" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Side Effects
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="Side Effects">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#1-existing-tokens-remain-valid" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        1. Existing Tokens Remain Valid
+        3. Request Flow (End-to-End)
       
     </span>
   </a>
   
 </li>
-        
-          <li class="md-nav__item">
-  <a href="#2-rate-limiting-continues-at-old-subscription" class="md-nav__link">
+      
+        <li class="md-nav__item">
+  <a href="#4-the-string-trick-authpolicy-tokenratelimitpolicy" class="md-nav__link">
     <span class="md-ellipsis">
       
-        2. Rate Limiting Continues at Old Subscription
+        4. The “String Trick” (AuthPolicy → TokenRateLimitPolicy)
       
     </span>
   </a>
   
 </li>
-        
-          <li class="md-nav__item">
-  <a href="#3-service-account-persists-after-group-removal" class="md-nav__link">
+      
+        <li class="md-nav__item">
+  <a href="#5-what-the-controller-creates-runtime-view" class="md-nav__link">
     <span class="md-ellipsis">
       
-        3. Service Account Persists After Group Removal
+        5. What the Controller Creates (Runtime View)
       
     </span>
   </a>
   
 </li>
-        
-          <li class="md-nav__item">
-  <a href="#4-user-downgrade-creates-new-service-account" class="md-nav__link">
+      
+        <li class="md-nav__item">
+  <a href="#6-component-diagram-controller-internals" class="md-nav__link">
     <span class="md-ellipsis">
       
-        4. User Downgrade Creates New Service Account
+        6. Component Diagram (Controller Internals)
       
     </span>
   </a>
   
 </li>
-        
-          <li class="md-nav__item">
-  <a href="#5-monitoring-shows-split-metrics" class="md-nav__link">
+      
+        <li class="md-nav__item">
+  <a href="#7-data-model-simplified" class="md-nav__link">
     <span class="md-ellipsis">
       
-        5. Monitoring Shows Split Metrics
+        7. Data Model (Simplified)
       
     </span>
   </a>
   
 </li>
-        
-      </ul>
-    </nav>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#recommended-practices" class="md-nav__link">
+      
+        <li class="md-nav__item">
+  <a href="#8-deployment-and-prerequisites" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Recommended Practices
+        8. Deployment and Prerequisites
       
     </span>
   </a>
   
 </li>
-        
-          <li class="md-nav__item">
-  <a href="#related-documentation" class="md-nav__link">
+      
+        <li class="md-nav__item">
+  <a href="#9-authentication-current-behavior" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Related Documentation
+        9. Authentication (Current Behavior)
       
     </span>
   </a>
   
 </li>
-        
-      </ul>
-    </nav>
+      
+        <li class="md-nav__item">
+  <a href="#10-summary" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        10. Summary
+      
+    </span>
+  </a>
   
 </li>
       
@@ -2130,147 +2107,246 @@
   
 
 
-<h1 id="group-membership-known-issues">Group Membership Known Issues</h1>
-<p>This document describes known issues and side effects related to removing group membership from users during active usage in the MaaS Platform Technical Preview release.</p>
-<h2 id="group-membership-changes-during-active-usage">Group Membership Changes During Active Usage</h2>
-<h3 id="issue-description">Issue Description</h3>
-<p>When a user is removed from a group (e.g., removed from <code>premium-users</code> group) while they have active tokens or ongoing requests, several side effects may occur due to the separation between user identity and Service Account identity.</p>
-<h3 id="how-group-membership-affects-access">How Group Membership Affects Access</h3>
+<h1 id="maas-controller-overview">MaaS Controller Overview</h1>
+<p>This document describes the <strong>MaaS Controller</strong>: what was built, how it fits into the Models-as-a-Service (MaaS) stack, and how the pieces work together. It is intended for presentations, onboarding, and technical deep-dives.</p>
+<hr />
+<h2 id="1-what-is-the-maas-controller">1. What Is the MaaS Controller?</h2>
+<p>The <strong>MaaS Controller</strong> is a Kubernetes controller that provides a <strong>subscription-style control plane</strong> for Models-as-a-Service. It lets platform operators define:</p>
+<ul>
+<li><strong>Which models</strong> are exposed through MaaS (via <strong>MaaSModelRef</strong>).</li>
+<li><strong>Who can access</strong> those models (via <strong>MaaSAuthPolicy</strong>).</li>
+<li><strong>Per-user/per-group token rate limits</strong> for those models (via <strong>MaaSSubscription</strong>).</li>
+</ul>
+<p>The controller does not run inference. It <strong>reconciles</strong> your high-level MaaS CRs into the underlying Gateway API and Kuadrant resources (HTTPRoutes, AuthPolicies, TokenRateLimitPolicies) that enforce routing, authentication, and rate limiting at the gateway.</p>
+<hr />
+<h2 id="2-high-level-architecture">2. High-Level Architecture</h2>
+<pre class="mermaid"><code>flowchart TB
+    subgraph Operator["Platform operator"]
+        MaaSModelRef["MaaSModelRef"]
+        MaaSAuthPolicy["MaaSAuthPolicy"]
+        MaaSSubscription["MaaSSubscription"]
+    end
+
+    subgraph Controller["maas-controller"]
+        ModelReconciler["MaaSModelRef\nReconciler"]
+        AuthReconciler["MaaSAuthPolicy\nReconciler"]
+        SubReconciler["MaaSSubscription\nReconciler"]
+    end
+
+    subgraph GatewayStack["Gateway API + Kuadrant"]
+        HTTPRoute["HTTPRoute"]
+        AuthPolicy["AuthPolicy\n(Kuadrant)"]
+        TokenRateLimitPolicy["TokenRateLimitPolicy\n(Kuadrant)"]
+    end
+
+    subgraph Backend["Backend"]
+        LLMIS["LLMInferenceService\n(KServe)"]
+    end
+
+    MaaSModelRef --&gt; ModelReconciler
+    MaaSAuthPolicy --&gt; AuthReconciler
+    MaaSSubscription --&gt; SubReconciler
+
+    ModelReconciler --&gt; HTTPRoute
+    AuthReconciler --&gt; AuthPolicy
+    SubReconciler --&gt; TokenRateLimitPolicy
+
+    HTTPRoute --&gt; AuthPolicy
+    HTTPRoute --&gt; TokenRateLimitPolicy
+    HTTPRoute --&gt; LLMIS</code></pre>
+<p><strong>Summary:</strong> You declare intent with MaaS CRs; the controller turns that into Gateway/Kuadrant resources that attach to the same HTTPRoute and backend (e.g. KServe LLMInferenceService).</p>
+<p>The <strong>MaaS API</strong> GET /v1/models endpoint uses MaaSModelRef CRs as its primary source: it lists them in the API namespace, then <strong>validates access</strong> by probing each model’s <code>/v1/models</code> endpoint with the client’s <strong>Authorization header</strong> (passed through as-is). Only models that return 2xx or 405 are included. So the catalogue returned to the client is the set of MaaSModelRef objects the controller reconciles, filtered to those the client can actually access. No token exchange is performed; the header is forwarded as-is. (Once minting is in place, this may be revisited.)</p>
+<hr />
+<h2 id="3-request-flow-end-to-end">3. Request Flow (End-to-End)</h2>
+<pre class="mermaid"><code>sequenceDiagram
+    participant User
+    participant Gateway
+    participant AuthPolicy as Kuadrant AuthPolicy
+    participant TRLP as TokenRateLimitPolicy
+    participant Backend as LLMInferenceService
+
+    User-&gt;&gt;Gateway: POST /llm/&lt;model&gt;/v1/chat/completions (Bearer token)
+    Gateway-&gt;&gt;AuthPolicy: Validate token (TokenReview)
+    AuthPolicy-&gt;&gt;AuthPolicy: Check groups/users, build identity
+    Note over AuthPolicy: Writes identity (userid, groups_str)
+    AuthPolicy--&gt;&gt;Gateway: Identity attached to request
+    Gateway-&gt;&gt;TRLP: Evaluate rate limit (identity-based)
+    TRLP-&gt;&gt;TRLP: groups_str.split(',').exists(g, g == "group")
+    TRLP--&gt;&gt;Gateway: Allow / deny by quota
+    Gateway-&gt;&gt;Backend: Forward request
+    Backend--&gt;&gt;User: Inference response</code></pre>
+<ul>
+<li><strong>AuthPolicy</strong> authenticates (e.g. OpenShift token via Kubernetes TokenReview), authorizes (allowed groups/users), and <strong>writes identity</strong> (e.g. <code>userid</code>, <code>groups</code>, <code>groups_str</code>).</li>
+<li><strong>TokenRateLimitPolicy</strong> uses that identity (in particular the comma-separated <code>groups_str</code>) to decide which subscription and limits apply.</li>
+</ul>
+<hr />
+<h2 id="4-the-string-trick-authpolicy-tokenratelimitpolicy">4. The “String Trick” (AuthPolicy → TokenRateLimitPolicy)</h2>
+<p>Kuadrant’s TokenRateLimitPolicy CEL predicates do not always support array fields the same way as the AuthPolicy response. To pass <strong>user groups</strong> from AuthPolicy to TokenRateLimitPolicy in a reliable way, the controller uses a <strong>comma-separated string</strong>:</p>
 <ol>
-<li><strong>Token Request</strong>: When a user requests a MaaS token, their group memberships are evaluated to determine their subscription(s).</li>
-<li><strong>Service Account Creation</strong>: A Service Account is created in the subscription-specific namespace (e.g., <code>maas-default-gateway-tier-premium</code> for the premium subscription).</li>
-<li><strong>Token Issuance</strong>: The token is issued for the Service Account, not the original user.</li>
-<li><strong>Request Authorization</strong>: Requests are authorized based on the Service Account's identity and the subscription metadata cached in the AuthPolicy.</li>
+<li><strong>AuthPolicy (controller-generated)</strong>  </li>
+<li>In the success response identity, the controller adds a property <strong><code>groups_str</code></strong> with a CEL expression that takes <strong>all</strong> user groups (unfiltered) and <strong>joins them with a comma</strong>:<br />
+<code>auth.identity.user.groups.join(",")</code>  </li>
+<li>So the identity object has both <code>groups</code> (array) and <strong><code>groups_str</code></strong> (string, e.g. <code>"system:authenticated,free-user,premium-user"</code>).  </li>
+<li>
+<p>Groups are passed unfiltered so that TRLP predicates can match against subscription groups, which may differ from auth policy groups.</p>
+</li>
+<li>
+<p><strong>TokenRateLimitPolicy (controller-generated)</strong>  </p>
+</li>
+<li>For each subscription owner group, the controller generates a CEL predicate that <strong>splits</strong> <code>groups_str</code> and checks membership, e.g.<br />
+<code>auth.identity.groups_str.split(",").exists(g, g == "free-user")</code>.</li>
 </ol>
-<h3 id="side-effects">Side Effects</h3>
-<h4 id="1-existing-tokens-remain-valid">1. Existing Tokens Remain Valid</h4>
-<p><strong>Impact</strong>: High</p>
-<p><strong>Description</strong>:</p>
-<p>When a user is removed from a group, their existing MaaS tokens remain valid until expiration because:</p>
+<p>So: <strong>AuthPolicy</strong> turns the user-groups array into a <strong>comma-separated string</strong>; <strong>TokenRateLimitPolicy</strong> turns that string back into a logical list and uses it for rate-limit matching. That’s the “string trick.”</p>
+<hr />
+<h2 id="5-what-the-controller-creates-runtime-view">5. What the Controller Creates (Runtime View)</h2>
+<pre class="mermaid"><code>flowchart LR
+    subgraph MaaS["MaaS CRs (your intent)"]
+        MM["MaaSModelRef\n(model ref)"]
+        MAP["MaaSAuthPolicy\n(modelRefs + subjects)"]
+        MS["MaaSSubscription\n(owner + modelRefs + limits)"]
+    end
+
+    subgraph Generated["Generated (per model / route)"]
+        HR["HTTPRoute"]
+        AP["AuthPolicy"]
+        TRL["TokenRateLimitPolicy"]
+    end
+
+    MM --&gt; HR
+    MAP --&gt; AP
+    MS --&gt; TRL
+    HR --&gt; AP
+    HR --&gt; TRL</code></pre>
+<table>
+<thead>
+<tr>
+<th>Your resource</th>
+<th>Controller creates / uses</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>MaaSModelRef</strong></td>
+<td><strong>HTTPRoute</strong> (or validates KServe-created route for LLMInferenceService)</td>
+</tr>
+<tr>
+<td><strong>MaaSAuthPolicy</strong></td>
+<td>One <strong>AuthPolicy</strong> per referenced model; targets that model’s HTTPRoute</td>
+</tr>
+<tr>
+<td><strong>MaaSSubscription</strong></td>
+<td>One <strong>TokenRateLimitPolicy</strong> per referenced model; targets that model’s HTTPRoute</td>
+</tr>
+</tbody>
+</table>
+<p>All generated resources are labeled <code>app.kubernetes.io/managed-by: maas-controller</code>.</p>
+<hr />
+<h2 id="6-component-diagram-controller-internals">6. Component Diagram (Controller Internals)</h2>
+<pre class="mermaid"><code>flowchart TB
+    subgraph Cluster["Kubernetes cluster"]
+        subgraph maas_controller["maas-controller (Deployment)"]
+            Manager["Controller Manager"]
+            ModelReconciler["MaaSModelRef\nReconciler"]
+            AuthReconciler["MaaSAuthPolicy\nReconciler"]
+            SubReconciler["MaaSSubscription\nReconciler"]
+        end
+
+        CRDs["CRDs: MaaSModelRef,\nMaaSAuthPolicy,\nMaaSSubscription"]
+        RBAC["RBAC: ClusterRole,\nServiceAccount, etc."]
+    end
+
+    Watch["Watch MaaS CRs,\nGateway API, Kuadrant,\nLLMInferenceService"]
+    Manager --&gt; ModelReconciler
+    Manager --&gt; AuthReconciler
+    Manager --&gt; SubReconciler
+    ModelReconciler --&gt; Watch
+    AuthReconciler --&gt; Watch
+    SubReconciler --&gt; Watch
+    CRDs --&gt; Watch
+    RBAC --&gt; maas_controller</code></pre>
 <ul>
-<li>The token is a Kubernetes Service Account token, not a user token.</li>
-<li>The Service Account continues to exist in the subscription namespace.</li>
-<li>Kubernetes TokenReview validates the Service Account, not the original user's group membership.</li>
+<li>Single binary: <strong>manager</strong> runs three reconcilers.</li>
+<li>Registers <strong>Kubernetes core</strong>, <strong>Gateway API</strong>, <strong>KServe (v1alpha1)</strong>, and <strong>MaaS (v1alpha1)</strong> schemes; uses <strong>unstructured</strong> for Kuadrant resources.</li>
+<li>Reads/writes MaaS CRs, HTTPRoutes, Gateways, AuthPolicies, TokenRateLimitPolicies, and LLMInferenceServices (read-only for model metadata/routes).</li>
 </ul>
-<p><strong>Example Scenario</strong>:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>T+0h:   User &quot;alice&quot; is in &quot;premium-users&quot; group
-<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>T+0h:   Alice requests a token -&gt; Gets SA token in premium subscription namespace
-<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>T+1h:   Admin removes Alice from &quot;premium-users&quot; group
-<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>T+1h:   Alice&#39;s token is STILL VALID (expires at T+24h)
-<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>T+1h:   Alice can still make requests using the existing token
-<a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a>T+24h:  Token expires, Alice must request a new one
-<a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a>T+24h:  New token request -&gt; Alice gets &quot;free&quot; subscription (or fails if no subscription matches)
+<hr />
+<h2 id="7-data-model-simplified">7. Data Model (Simplified)</h2>
+<pre class="mermaid"><code>erDiagram
+    MaaSModelRef ||--o{ HTTPRoute : "creates or validates"
+    MaaSModelRef }o--|| LLMInferenceService : "references (kind: LLMInferenceService)"
+    MaaSAuthPolicy ||--o{ AuthPolicy : "one per model"
+    MaaSAuthPolicy }o--o{ MaaSModelRef : "modelRefs"
+    MaaSSubscription ||--o{ TokenRateLimitPolicy : "one per model"
+    MaaSSubscription }o--o{ MaaSModelRef : "modelRefs"
+    AuthPolicy }o--|| HTTPRoute : "targetRef"
+    TokenRateLimitPolicy }o--|| HTTPRoute : "targetRef"
+    HTTPRoute }o--|| Gateway : "parentRef"</code></pre>
+<ul>
+<li><strong>MaaSModelRef</strong>: <code>spec.modelRef.kind</code> = LLMInferenceService or ExternalModel; <code>spec.modelRef.name</code> = name of the referenced model resource.</li>
+<li><strong>MaaSAuthPolicy</strong>: <code>spec.modelRefs</code> (list of ModelRef objects with name and namespace), <code>spec.subjects</code> (groups, users).</li>
+<li><strong>MaaSSubscription</strong>: <code>spec.owner</code> (groups, users), <code>spec.modelRefs</code> (list of ModelSubscriptionRef objects with name, namespace, and either <code>tokenRateLimits</code> array or <code>tokenRateLimitRef</code> reference to define per-model rate limits).</li>
+</ul>
+<hr />
+<h2 id="8-deployment-and-prerequisites">8. Deployment and Prerequisites</h2>
+<pre class="mermaid"><code>flowchart LR
+    subgraph Prereqs["Prerequisites"]
+        ODH["Open Data Hub\n(opendatahub ns)"]
+        GW["Gateway API"]
+        Kuadrant["Kuadrant"]
+        KServe["KServe (optional)\nfor LLMInferenceService"]
+    end
+
+    subgraph Install["Install steps"]
+        Deploy["deploy.sh"]
+        Examples["Optional: install-examples.sh"]
+    end
+
+    Prereqs --&gt; Deploy
+    Deploy --&gt; Examples</code></pre>
+<ul>
+<li><strong>Namespace</strong>: Controller and default MaaS CRs live in <strong>opendatahub</strong> (configurable).</li>
+<li><strong>Install</strong>: <code>./scripts/deploy.sh</code> installs the full stack including the controller. Optionally run <code>./scripts/install-examples.sh</code> for sample MaaSModelRef, MaaSAuthPolicy, and MaaSSubscription.</li>
+</ul>
+<hr />
+<h2 id="9-authentication-current-behavior">9. Authentication (Current Behavior)</h2>
+<p>For <strong>GET /v1/models</strong>, the API forwards the client’s <strong>Authorization</strong> header as-is to each model endpoint (no token exchange). For inference, until MaaS API token minting is in place, use the <strong>OpenShift token</strong>:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nb">export</span><span class="w"> </span><span class="nv">TOKEN</span><span class="o">=</span><span class="k">$(</span>oc<span class="w"> </span>whoami<span class="w"> </span>-t<span class="k">)</span>
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>curl<span class="w"> </span>-H<span class="w"> </span><span class="s2">&quot;Authorization: Bearer </span><span class="nv">$TOKEN</span><span class="s2">&quot;</span><span class="w"> </span><span class="s2">&quot;https://&lt;gateway-host&gt;/llm/&lt;model-name&gt;/v1/chat/completions&quot;</span><span class="w"> </span>-d<span class="w"> </span><span class="s1">&#39;...&#39;</span>
 </code></pre></div>
-<p><strong>Workaround</strong>:</p>
-<ul>
-<li>Revoke the user's tokens explicitly using the <code>DELETE /v1/tokens</code> endpoint.</li>
-<li>This deletes and recreates the user's Service Account, invalidating all existing tokens.</li>
-</ul>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>curl<span class="w"> </span>-X<span class="w"> </span>DELETE<span class="w"> </span><span class="s2">&quot;</span><span class="si">${</span><span class="nv">HOST</span><span class="si">}</span><span class="s2">/maas-api/v1/tokens&quot;</span><span class="w"> </span><span class="se">\</span>
-<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="w">  </span>-H<span class="w"> </span><span class="s2">&quot;Authorization: Bearer </span><span class="si">${</span><span class="nv">USER_TOKEN</span><span class="si">}</span><span class="s2">&quot;</span>
-</code></pre></div>
-<p>Note: The user must authenticate with their own token to revoke their tokens. Administrators cannot revoke tokens on behalf of other users in the current implementation.</p>
-<h4 id="2-rate-limiting-continues-at-old-subscription">2. Rate Limiting Continues at Old Subscription</h4>
-<p><strong>Impact</strong>: Medium</p>
-<p><strong>Description</strong>:</p>
-<p>The AuthPolicy caches the subscription lookup result (default TTL: 5 minutes). After a user is removed from a group:</p>
-<ul>
-<li>Requests within the cache window continue to use the old subscription's rate limits.</li>
-<li>After cache expiry, the subscription is re-evaluated based on current group membership.</li>
-<li>If the user still has a valid token but no longer belongs to any subscription group, requests may fail.</li>
-</ul>
-<p><strong>Example Timeline</strong>:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>T+0m:   User removed from &quot;premium-users&quot; group
-<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>T+1m:   Request made -&gt; Cached subscription &quot;premium&quot; used -&gt; Rate limit: 1000 tokens/min
-<a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a>T+5m:   Cache expires
-<a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a>T+6m:   Request made -&gt; Subscription lookup fails (no matching group) -&gt; Request may fail with 403
-</code></pre></div>
-<p><strong>Workaround</strong>:</p>
-<ul>
-<li>Wait for cache TTL (5 minutes) for rate limiting to reflect the new group membership.</li>
-<li>For immediate effect, restart Authorino pods (disruptive).</li>
-</ul>
-<h4 id="3-service-account-persists-after-group-removal">3. Service Account Persists After Group Removal</h4>
-<p><strong>Impact</strong>: Low</p>
-<p><strong>Description</strong>:</p>
-<p>When a user is removed from a group, their Service Account in the subscription namespace is not automatically deleted:</p>
-<ul>
-<li>The Service Account remains in the subscription namespace.</li>
-<li>No new tokens can be issued for the old subscription (subscription lookup fails).</li>
-<li>Old tokens continue to work until expiration.</li>
-<li>This is a cleanup artifact, not a security issue (access is controlled by RBAC and rate limiting).</li>
-</ul>
-<p><strong>Workaround</strong>:</p>
-<ul>
-<li>Service Accounts can be manually cleaned up if needed.</li>
-<li>The Service Account name is derived from the username: special characters are replaced with dashes, converted to lowercase, and an 8-character hash suffix is appended (e.g., <code>alice-example-com-a1b2c3d4</code> for <code>alice@example.com</code>).</li>
-<li>To find the Service Account for a specific user, list and filter by the username pattern:</li>
-</ul>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="c1"># List all Service Accounts in the subscription namespace</span>
-<a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a>kubectl<span class="w"> </span>get<span class="w"> </span>serviceaccount<span class="w"> </span>-n<span class="w"> </span>maas-default-gateway-tier-&lt;old-subscription&gt;
-<a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a>
-<a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a><span class="c1"># Filter by username pattern (e.g., for user &quot;alice@example.com&quot;)</span>
-<a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a>kubectl<span class="w"> </span>get<span class="w"> </span>serviceaccount<span class="w"> </span>-n<span class="w"> </span>maas-default-gateway-tier-&lt;old-subscription&gt;<span class="w"> </span><span class="p">|</span><span class="w"> </span>grep<span class="w"> </span>alice
-<a id="__codelineno-3-6" name="__codelineno-3-6" href="#__codelineno-3-6"></a>
-<a id="__codelineno-3-7" name="__codelineno-3-7" href="#__codelineno-3-7"></a><span class="c1"># Delete the identified Service Account</span>
-<a id="__codelineno-3-8" name="__codelineno-3-8" href="#__codelineno-3-8"></a>kubectl<span class="w"> </span>delete<span class="w"> </span>serviceaccount<span class="w"> </span>&lt;sa-name&gt;<span class="w"> </span>-n<span class="w"> </span>maas-default-gateway-tier-&lt;old-subscription&gt;
-</code></pre></div>
-<h4 id="4-user-downgrade-creates-new-service-account">4. User Downgrade Creates New Service Account</h4>
-<p><strong>Impact</strong>: Low</p>
-<p><strong>Description</strong>:</p>
-<p>When a user is moved to a lower subscription (e.g., removed from <code>premium-users</code>, now only matching the <code>free</code> subscription group, such as <code>system:authenticated</code> in the default configuration):</p>
-<ul>
-<li>A new Service Account is created in the new subscription namespace (e.g., <code>maas-default-gateway-tier-free</code>).</li>
-<li>The old Service Account in the premium subscription namespace remains.</li>
-<li>Old premium tokens continue to work until expiration.</li>
-<li>New token requests create tokens in the free subscription namespace.</li>
-</ul>
-<p><strong>Example</strong>:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>Before: Alice in &quot;premium-users&quot; -&gt; SA in premium subscription namespace
-<a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a>After:  Alice removed from &quot;premium-users&quot; (still matches &quot;free&quot; subscription group)
-<a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a>        -&gt; Old SA still exists in premium namespace
-<a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a>        -&gt; New token request creates SA in free subscription namespace
-<a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a>        -&gt; Alice now has SAs in both namespaces
-</code></pre></div>
-<p><strong>Workaround</strong>:</p>
-<ul>
-<li>Revoke tokens before changing group membership to ensure clean transition.</li>
-<li>Delete the user's Service Account manually from the old subscription namespace when they change groups.</li>
-</ul>
-<h4 id="5-monitoring-shows-split-metrics">5. Monitoring Shows Split Metrics</h4>
-<p><strong>Impact</strong>: Low</p>
-<p><strong>Description</strong>:</p>
-<p>If a user has tokens from multiple subscriptions (before and after group change):</p>
-<ul>
-<li>Metrics are attributed to the Service Account's namespace.</li>
-<li>Usage appears split across subscription namespaces.</li>
-<li>This is a reporting artifact and does not affect access control.</li>
-</ul>
-<p><strong>Workaround</strong>:</p>
-<ul>
-<li>Aggregate metrics by username label if available.</li>
-<li>Encourage users to revoke old tokens after subscription changes.</li>
-</ul>
-<h3 id="recommended-practices">Recommended Practices</h3>
-<ol>
-<li>
-<p><strong>Revoke Before Removing</strong>: When removing a user from a group, revoke their tokens first to ensure immediate access termination.</p>
-</li>
-<li>
-<p><strong>Communicate Changes</strong>: Notify users before group membership changes so they can plan for re-authentication.</p>
-</li>
-<li>
-<p><strong>Use Short Token Expiration</strong>: Shorter token lifetimes reduce the window of continued access after group removal.</p>
-</li>
-<li>
-<p><strong>Clean Up Service Accounts</strong>: When a user changes groups, manually delete their Service Account from the old subscription namespace to prevent orphaned resources.</p>
-</li>
-</ol>
-<h3 id="related-documentation">Related Documentation</h3>
-<ul>
-<li><a href="../quota-and-access-configuration/">Quota and Access Configuration</a> - How to configure subscription-to-group mappings</li>
-<li><a href="../token-management/">Token Management</a> - Understanding token lifecycle and revocation</li>
-</ul>
+<p>The Kuadrant AuthPolicy validates this token via <strong>Kubernetes TokenReview</strong> and derives user/groups for authorization and for the identity passed to TokenRateLimitPolicy (including <code>groups_str</code>).</p>
+<hr />
+<h2 id="10-summary">10. Summary</h2>
+<table>
+<thead>
+<tr>
+<th>Topic</th>
+<th>Summary</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>What</strong></td>
+<td>MaaS Controller = control plane that reconciles MaaSModelRef, MaaSAuthPolicy, and MaaSSubscription into Gateway API and Kuadrant resources.</td>
+</tr>
+<tr>
+<td><strong>Where</strong></td>
+<td>Single controller in <code>maas-controller</code>; CRs and generated resources can live in opendatahub or other namespaces.</td>
+</tr>
+<tr>
+<td><strong>How</strong></td>
+<td>Three reconcilers watch MaaS CRs (and related resources); each creates/updates HTTPRoutes, AuthPolicies, or TokenRateLimitPolicies.</td>
+</tr>
+<tr>
+<td><strong>Identity bridge</strong></td>
+<td>AuthPolicy exposes all user groups as a comma-separated <code>groups_str</code>; TokenRateLimitPolicy uses <code>groups_str.split(",").exists(...)</code> for subscription matching (the “string trick”).</td>
+</tr>
+<tr>
+<td><strong>Deploy</strong></td>
+<td>Run <code>./scripts/deploy.sh</code>; optionally install examples.</td>
+</tr>
+</tbody>
+</table>
+<p>This overview should be enough to explain what was created and how it works in talks or written docs.</p>
 
 
 
@@ -2293,7 +2369,7 @@
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="March 18, 2026 15:47:11 UTC">March 18, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="March 10, 2026 19:12:26 UTC">March 10, 2026</span>
   </span>
 
     
@@ -2303,7 +2379,7 @@
     <span class="md-icon" title="Created">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M14.47 15.08 11 13V7h1.5v5.25l3.08 1.83c-.41.28-.79.62-1.11 1m-1.39 4.84c-.36.05-.71.08-1.08.08-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8c0 .37-.03.72-.08 1.08.69.1 1.33.32 1.92.64.1-.56.16-1.13.16-1.72 0-5.5-4.5-10-10-10S2 6.5 2 12s4.47 10 10 10c.59 0 1.16-.06 1.72-.16-.32-.59-.54-1.23-.64-1.92M18 15v3h-3v2h3v3h2v-3h3v-2h-3v-3z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="December 18, 2025 17:15:13 UTC">December 18, 2025</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="February 27, 2026 17:58:09 UTC">February 27, 2026</span>
   </span>
 
     
