@@ -78,6 +78,7 @@ OPERATOR_TYPE="${OPERATOR_TYPE:-odh}"
 POLICY_ENGINE=""  # Auto-determined: odh→kuadrant, rhoai→rhcl
 NAMESPACE="${DEPLOYMENT_NAMESPACE:-}"  # Auto-determined based on operator type
 ENABLE_TLS_BACKEND="${ENABLE_TLS_BACKEND:-true}"
+ENABLE_EGRESS="${ENABLE_EGRESS:-false}"
 VERBOSE="${VERBOSE:-false}"
 DRY_RUN="${DRY_RUN:-false}"
 OPERATOR_CATALOG="${OPERATOR_CATALOG:-}"
@@ -116,6 +117,10 @@ OPTIONS:
   --disable-tls-backend
       Disable TLS backend for Authorino and MaaS API
       Uses HTTP tier lookup URL instead
+
+  --enable-egress
+      Install payload processing plugins for external model egress support
+      Clones ai-gateway-payload-processing and installs the Helm chart
 
   --namespace <namespace>
       Target namespace for deployment
@@ -219,6 +224,10 @@ parse_arguments() {
         ;;
       --disable-tls-backend)
         ENABLE_TLS_BACKEND="false"
+        shift
+        ;;
+      --enable-egress)
+        ENABLE_EGRESS="true"
         shift
         ;;
       --namespace)
@@ -384,6 +393,65 @@ validate_configuration() {
 }
 
 #──────────────────────────────────────────────────────────────
+# EGRESS SUPPORT (PAYLOAD PROCESSING)
+#──────────────────────────────────────────────────────────────
+
+install_egress_support() {
+  local gateway_ns="openshift-ingress"
+  local gateway_name="maas-default-gateway"
+  local anchor="extensions.istio.io/wasmplugin/${gateway_ns}.kuadrant-${gateway_name}"
+
+  log_info "Installing egress support (payload processing plugins)..."
+
+  # Install ExternalModel CRD if not present
+  if ! kubectl get crd externalmodels.maas.opendatahub.io &>/dev/null; then
+    log_info "  Installing ExternalModel CRD..."
+    local project_root
+    project_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+    kubectl apply -f "${project_root}/deployment/base/maas-controller/crd/bases/maas.opendatahub.io_externalmodels.yaml"
+  fi
+
+  # Check if already installed
+  if helm status payload-processing -n "$gateway_ns" &>/dev/null; then
+    log_info "  payload-processing already installed, upgrading..."
+    local helm_cmd="upgrade"
+  else
+    local helm_cmd="install"
+  fi
+
+  # Clone ai-gateway-payload-processing for the Helm chart
+  local chart_dir
+  chart_dir=$(mktemp -d)
+  log_info "  Cloning ai-gateway-payload-processing..."
+  if ! git clone --depth 1 https://github.com/opendatahub-io/ai-gateway-payload-processing.git "$chart_dir" 2>/dev/null; then
+    log_error "Failed to clone ai-gateway-payload-processing"
+    rm -rf "$chart_dir"
+    return 1
+  fi
+
+  log_info "  Running helm ${helm_cmd}..."
+  if ! helm "$helm_cmd" payload-processing "$chart_dir/deploy/payload-processing" \
+      --namespace "$gateway_ns" \
+      --dependency-update \
+      --set upstreamBbr.inferenceGateway.name="$gateway_name" \
+      --set "upstreamBbr.provider.istio.envoyFilter.anchorSubFilter=${anchor}"; then
+    log_error "Failed to ${helm_cmd} payload-processing"
+    rm -rf "$chart_dir"
+    return 1
+  fi
+
+  rm -rf "$chart_dir"
+
+  # Wait for pod to be ready
+  log_info "  Waiting for payload-processing to be ready..."
+  if ! kubectl rollout status deployment/payload-processing -n "$gateway_ns" --timeout=120s; then
+    log_warn "payload-processing deployment not ready after 120s"
+  fi
+
+  log_info "  Egress support installed"
+}
+
+#──────────────────────────────────────────────────────────────
 # DEPLOYMENT ORCHESTRATION
 #──────────────────────────────────────────────────────────────
 
@@ -404,6 +472,7 @@ main() {
   log_info "  Policy Engine: $POLICY_ENGINE"
   log_info "  Namespace: $NAMESPACE"
   log_info "  TLS Backend: $ENABLE_TLS_BACKEND"
+  log_info "  Egress Support: $ENABLE_EGRESS"
   if [[ -n "${MAAS_API_IMAGE:-}" ]]; then
     log_info "  MaaS API image: $MAAS_API_IMAGE"
   fi
@@ -489,6 +558,11 @@ main() {
         log_warn "maas-controller rollout after audience patch did not complete in time"
       fi
     fi
+  fi
+
+  # Install egress support (payload processing plugins) if enabled
+  if [[ "$ENABLE_EGRESS" == "true" ]]; then
+    install_egress_support
   fi
 
   log_info "==================================================="
