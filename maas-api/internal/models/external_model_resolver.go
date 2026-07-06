@@ -20,7 +20,7 @@ func NewExternalModelResolver(client dynamic.Interface) *ExternalModelResolver {
 }
 
 // ResolveModelName looks up an inference.opendatahub.io ExternalModel and returns spec.modelName.
-func (r *ExternalModelResolver) ResolveModelName(namespace, name string) string {
+func (r *ExternalModelResolver) ResolveModelName(ctx context.Context, namespace, name string) string {
 	if r.client == nil {
 		return ""
 	}
@@ -29,7 +29,7 @@ func (r *ExternalModelResolver) ResolveModelName(namespace, name string) string 
 		Version:  "v1alpha1",
 		Resource: "externalmodels",
 	}
-	obj, err := r.client.Resource(gvr).Namespace(namespace).Get(context.Background(), name, metav1.GetOptions{})
+	obj, err := r.client.Resource(gvr).Namespace(namespace).Get(ctx, name, metav1.GetOptions{})
 	if err != nil {
 		return ""
 	}
