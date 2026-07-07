@@ -165,7 +165,7 @@ func TestAggregateModelSubjectAllowlistsModelNameAliases(t *testing.T) {
 	r := &MaaSAuthPolicyReconciler{
 		Client:           c,
 		Scheme:           scheme,
-		MaaSAPINamespace: "opendatahub",
+		InfraNamespace:   "opendatahub",
 		GatewayNamespace: "openshift-ingress",
 		GatewayName:      "maas-default-gateway",
 	}
@@ -218,7 +218,7 @@ func TestAggregateModelSubjectAllowlistsRejectsUnsafeModelName(t *testing.T) {
 	r := &MaaSAuthPolicyReconciler{
 		Client:           c,
 		Scheme:           scheme,
-		MaaSAPINamespace: "opendatahub",
+		InfraNamespace:   "opendatahub",
 		GatewayNamespace: "openshift-ingress",
 		GatewayName:      "maas-default-gateway",
 	}
