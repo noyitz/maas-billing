@@ -218,7 +218,7 @@ func registerHandlers(
 	v1Routes := router.Group("/v1")
 
 	authPolicyChecker := authpolicy.NewChecker(log, cluster.MaaSAuthPolicyLister)
-	externalModelResolver := models.NewExternalModelResolver(cluster.DynamicClient)
+	externalModelResolver := models.NewExternalModelResolver(log, cluster.DynamicClient)
 	subscriptionSelector := subscription.NewSelector(log, cluster.MaaSSubscriptionLister, cluster.MaaSModelRefLister, authPolicyChecker).
 		WithExternalModelResolver(externalModelResolver)
 
