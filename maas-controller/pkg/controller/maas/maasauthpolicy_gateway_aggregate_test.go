@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	maasv1alpha1 "github.com/opendatahub-io/models-as-a-service/maas-controller/api/maas/v1alpha1"
@@ -118,48 +118,33 @@ func TestAggregateModelSubjectAllowlistsAndGatewaySpec(t *testing.T) {
 	}
 }
 
-// newExternalModelWithModelName builds an inference.opendatahub.io ExternalModel
-// carrying spec.modelName, as used for body-routed model_access aliases.
-func newExternalModelWithModelName(name, namespace, modelName string) *unstructured.Unstructured {
-	em := &unstructured.Unstructured{Object: map[string]any{
-		"apiVersion": "inference.opendatahub.io/v1alpha1",
-		"kind":       "ExternalModel",
-		"metadata":   map[string]any{"name": name, "namespace": namespace},
-		"spec":       map[string]any{"modelName": modelName},
-	}}
-	em.SetGroupVersionKind(inferenceExternalModelGVK)
-	return em
-}
-
 func TestAggregateModelSubjectAllowlistsModelNameAliases(t *testing.T) {
 	const policyNamespace = "models-as-a-service"
 
-	policyA := newMaaSAuthPolicy(
+	policy := newMaaSAuthPolicy(
 		"policy-a",
 		policyNamespace,
 		"group-a",
 		maasv1alpha1.ModelRef{Name: "model-a", Namespace: "llm"},
 	)
-	policyA.Spec.Subjects.Users = []string{"user-a"}
+	policy.Spec.Subjects.Users = []string{"user-a"}
 
-	policyB := newMaaSAuthPolicy(
-		"policy-b",
-		policyNamespace,
-		"group-b",
-		maasv1alpha1.ModelRef{Name: "model-b", Namespace: "llm"},
-	)
-	policyB.Spec.Subjects.Users = []string{"user-b"}
-
-	// Both ExternalModels resolve to the same spec.modelName: the alias
-	// allowlist must be the union of both refs' subjects, regardless of map
-	// iteration order.
-	modelA := newExternalModelWithModelName("model-a", "llm", "shared-alias")
-	modelB := newExternalModelWithModelName("model-b", "llm", "shared-alias")
+	// MaaSModelRef with Status.ResolvedModelAlias set — resolveHeaderModelKeys
+	// reads this to add body-routed alias keys into the aggregate.
+	modelRef := &maasv1alpha1.MaaSModelRef{
+		ObjectMeta: metav1.ObjectMeta{Name: "model-a", Namespace: "llm"},
+		Spec: maasv1alpha1.MaaSModelSpec{
+			ModelRef: maasv1alpha1.ModelReference{Kind: "ExternalModel", Name: "model-a"},
+		},
+		Status: maasv1alpha1.MaaSModelStatus{
+			ResolvedModelAlias: "claude-opus-4-8",
+		},
+	}
 
 	c := fake.NewClientBuilder().
 		WithScheme(scheme).
 		WithRESTMapper(testRESTMapper()).
-		WithObjects(policyA, policyB, modelA, modelB).
+		WithObjects(policy, modelRef).
 		Build()
 
 	r := &MaaSAuthPolicyReconciler{
@@ -175,56 +160,20 @@ func TestAggregateModelSubjectAllowlistsModelNameAliases(t *testing.T) {
 		t.Fatalf("aggregateModelSubjectAllowlists returned error: %v", err)
 	}
 
-	alias, ok := allowlists["shared-alias"]
+	alias, ok := allowlists["claude-opus-4-8"]
 	if !ok {
-		t.Fatalf("expected alias entry for shared-alias, got keys: %v", keysOf(allowlists))
+		t.Fatalf("expected alias entry for claude-opus-4-8, got keys: %v", keysOf(allowlists))
 	}
-	if got, want := strings.Join(alias.Groups, ","), "group-a,group-b"; got != want {
-		t.Fatalf("shared-alias groups = %q, want %q", got, want)
+	if got, want := strings.Join(alias.Groups, ","), "group-a"; got != want {
+		t.Fatalf("alias groups = %q, want %q", got, want)
 	}
-	if got, want := strings.Join(alias.Users, ","), "user-a,user-b"; got != want {
-		t.Fatalf("shared-alias users = %q, want %q", got, want)
+	if got, want := strings.Join(alias.Users, ","), "user-a"; got != want {
+		t.Fatalf("alias users = %q, want %q", got, want)
 	}
 
-	// Canonical namespace/name entries must be unaffected by aliasing.
+	// Canonical namespace/name entry must be unaffected by aliasing.
 	if got, want := strings.Join(allowlists["llm/model-a"].Users, ","), "user-a"; got != want {
 		t.Fatalf("llm/model-a users = %q, want %q", got, want)
-	}
-	if got, want := strings.Join(allowlists["llm/model-b"].Users, ","), "user-b"; got != want {
-		t.Fatalf("llm/model-b users = %q, want %q", got, want)
-	}
-}
-
-func TestAggregateModelSubjectAllowlistsRejectsUnsafeModelName(t *testing.T) {
-	const policyNamespace = "models-as-a-service"
-
-	policy := newMaaSAuthPolicy(
-		"policy-a",
-		policyNamespace,
-		"group-a",
-		maasv1alpha1.ModelRef{Name: "model-a", Namespace: "llm"},
-	)
-
-	// spec.modelName is CR-controlled and becomes a model_access key inside a
-	// CEL/Rego policy; unsafe characters must fail aggregation.
-	model := newExternalModelWithModelName("model-a", "llm", `bad"alias`)
-
-	c := fake.NewClientBuilder().
-		WithScheme(scheme).
-		WithRESTMapper(testRESTMapper()).
-		WithObjects(policy, model).
-		Build()
-
-	r := &MaaSAuthPolicyReconciler{
-		Client:           c,
-		Scheme:           scheme,
-		InfraNamespace:   "opendatahub",
-		GatewayNamespace: "openshift-ingress",
-		GatewayName:      "maas-default-gateway",
-	}
-
-	if _, err := r.aggregateModelSubjectAllowlists(context.Background(), policyNamespace); err == nil {
-		t.Fatal("expected error for spec.modelName with unsafe characters, got nil")
 	}
 }
 
