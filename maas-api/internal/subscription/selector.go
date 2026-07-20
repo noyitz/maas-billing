@@ -1,13 +1,11 @@
 package subscription
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"slices"
 	"sort"
 	"strings"
-	"time"
 
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 
@@ -36,23 +34,12 @@ type ModelAccessChecker interface {
 	AuthorizedModels(groups []string, username string) map[authpolicy.ModelKey]bool
 }
 
-// ExternalModelNameResolver resolves an ExternalModel CRD name to its spec.modelName.
-type ExternalModelNameResolver interface {
-	ResolveModelName(ctx context.Context, namespace, name string) string
-}
-
-// externalModelResolveTimeout bounds ExternalModel lookups during model-ref
-// enrichment. Selector's public API does not carry the request context, so a
-// timeout keeps a slow API server from pinning request goroutines.
-const externalModelResolveTimeout = 5 * time.Second
-
 // Selector handles subscription selection logic.
 type Selector struct {
-	lister                Lister
-	modelLister           models.MaaSModelRefLister
-	accessChecker         ModelAccessChecker
-	externalModelResolver ExternalModelNameResolver
-	logger                *logger.Logger
+	lister        Lister
+	modelLister   models.MaaSModelRefLister
+	accessChecker ModelAccessChecker
+	logger        *logger.Logger
 }
 
 // NewSelector creates a new subscription selector.
@@ -67,13 +54,6 @@ func NewSelector(log *logger.Logger, lister Lister, modelLister models.MaaSModel
 		accessChecker: accessChecker,
 		logger:        log,
 	}
-}
-
-// WithExternalModelResolver sets the ExternalModel name resolver for
-// mapping raw model names (e.g. "claude-opus-4-8") to subscription model refs.
-func (s *Selector) WithExternalModelResolver(r ExternalModelNameResolver) *Selector {
-	s.externalModelResolver = r
-	return s
 }
 
 // buildModelIndex builds a lookup map keyed by "namespace/name" from the MaaSModelRef cache.
@@ -362,8 +342,6 @@ func (s *Selector) enrichModelRefs(refs []ModelRefInfo, index map[string]*unstru
 	if index == nil {
 		return
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), externalModelResolveTimeout)
-	defer cancel()
 	for i := range refs {
 		key := refs[i].Namespace + "/" + refs[i].Name
 		if u, ok := index[key]; ok {
@@ -375,12 +353,6 @@ func (s *Selector) enrichModelRefs(refs []ModelRefInfo, index map[string]*unstru
 			switch kind {
 			case "ExternalModel":
 				refs[i].Source = "external"
-				if s.externalModelResolver != nil {
-					refName, _, _ := unstructured.NestedString(u.Object, "spec", "modelRef", "name")
-					if refName != "" {
-						refs[i].ModelName = s.externalModelResolver.ResolveModelName(ctx, u.GetNamespace(), refName)
-					}
-				}
 			case "LLMInferenceService":
 				refs[i].Source = "internal"
 			}
