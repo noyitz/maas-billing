@@ -356,6 +356,9 @@ func (s *Selector) enrichModelRefs(refs []ModelRefInfo, index map[string]*unstru
 			case "LLMInferenceService":
 				refs[i].Source = "internal"
 			}
+			if alias, ok, _ := unstructured.NestedString(u.Object, "status", "resolvedModelAlias"); ok && alias != "" {
+				refs[i].ModelName = alias
+			}
 		}
 	}
 }
